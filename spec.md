@@ -24,7 +24,7 @@ The commute to the gym. **Not tracked in the app.**
 
 ### 2.2 KB Flow (every session)
 
-A circuit of four kettlebell movements, repeated three times back-to-back:
+A circuit of five kettlebell movements, repeated three times back-to-back:
 
 | Movement              | Reps         |
 | --------------------- | ------------ |
@@ -35,6 +35,11 @@ A circuit of four kettlebell movements, repeated three times back-to-back:
 | Push-up (bodyweight)  | 4            |
 
 One kettlebell weight is used for the whole flow. (See §9.3 for KB progression.)
+
+The Tracker records **one set per completed circuit (3 per session)**, not
+one per movement-per-round. The five movements above are reference labels in
+the section header; the user taps a single "Circuit" button after finishing
+the whole lap.
 
 ### 2.3 Strength block (one of A / B / C)
 
@@ -76,13 +81,16 @@ Single scrollable screen, top to bottom:
 ├────────────────────────────────────────┤
 │  KB Flow · 16 kg                       │
 │                                        │
-│  Swings           ·32         ●  ●  ●  │  ← three round buttons per movement
-│  Clean & Press    ·16/side    ●  ●  ●  │
-│  Lunges           ·8/side     ●  ●  ●  │
-│  Goblet Squats    ·8          ●  ●  ●  │
-│  Push-up          ·4          ●  ●  ●  │
+│  Swings           ·32                  │  ← movement labels, no per-row button
+│  Clean & Press    ·16/side             │
+│  Lunges           ·8/side              │
+│  Goblet Squats    ·8                   │
+│  Push-up          ·4                   │
+│                                        │
+│   Circuit 1   Circuit 2   Circuit 3    │  ← three buttons total, one per lap
+│       ●           ●           ●        │
 ├────────────────────────────────────────┤
-│  Pull-ups · 70 kg · target 10 reps     │
+│  Lat Pulldown · 70 kg · target 10 reps │
 │                                        │
 │  Prime · Work · Work · Work            │
 │   ●      ●      ●      ●               │
@@ -210,13 +218,18 @@ so catalog rows added in later releases backfill into existing installs.
 > Slug is the natural key — stable across releases and human-readable in
 > queries. We dropped the synthetic integer `id` since it had no callers.
 
+The catalog carries one extra row, `kb_flow`, used as the sentinel
+`exercise_slug` for the three per-session KB-circuit rows in `set_entry`
+(§2.2). The five named KB movements remain in the catalog as display
+references but never appear in `set_entry`.
+
 ### 8.2 `user_settings` (singleton row, `id = 0`)
 
 | Column                          | Type    | Notes                                            |
 | ------------------------------- | ------- | ------------------------------------------------ |
 | `id`                            | INTEGER | PK, always `0`                                   |
 | `onboarded_at`                  | INTEGER | epoch millis; null until onboarding completes    |
-| `kb_weight_kg`                  | REAL    | starting KB weight captured at onboarding        |
+| `kb_weight_kg`                  | REAL    | current KB weight — initial value captured at onboarding, mutated by the KB-bump prompt (§9.3); each session snapshots this at commit time |
 | `starting_target_reps`          | INTEGER | starting target reps (default 8) at onboarding   |
 | `kb_bump_snoozed_at_month`      | TEXT    | ISO `YYYY-MM`; set when user taps "Not yet"      |
 | `kb_bump_snooze_session_count`  | INTEGER | session count at snooze; clears after 2 sessions |

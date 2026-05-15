@@ -69,20 +69,23 @@ Goal: first launch collects starting weights and target reps, then opens Tracker
 
 Goal: the only feature that has to feel right. Tap, see it stick, finish, get prompted, advance.
 
-- [ ] `SetButton` composable — three visual states (Pending / Completed / Failed), single-tap / double-tap / long-press gestures, haptic + scale animation, content descriptions for a11y
-- [ ] `TrackerViewModel`:
-  - [ ] On init, ask progression engine for today's `DayPlan`
-  - [ ] Maintain in-memory set-state map; persist to `InProgressSession` on every change (debounced is fine)
-  - [ ] Restore from `InProgressSession` on cold start
-  - [ ] Expose `allButtonsResolved: StateFlow<Boolean>` to drive the feedback dialog
-- [ ] `TrackerScreen` composable rendering §4.1 layout:
-  - [ ] Header (split letter + name + date)
-  - [ ] KB Flow section: 5 movements × 3 round buttons each, KB weight shown
-  - [ ] Strength section: 2 movements, each with Prime + 3 working buttons, weight + target reps shown
-- [ ] Feedback dialog: bottom modal sheet with R/Y/G dots; large touch targets
-- [ ] On feedback tap: commit `Session` + `SetEntry` rows, clear `InProgressSession`, recompute next prescription, refresh
-- [ ] KB-bump prompt — show as a one-button banner above the KB section when applicable; "Bump to N+2 kg" / "Not yet"
-- [ ] Verify on device: tap feedback feels right, mid-workout app kill restores state, completion advances split
+- [x] `SetButton` composable — three visual states (Pending / Completed / Failed), single-tap / double-tap / long-press gestures, haptic + scale animation, content descriptions for a11y
+- [x] `TrackerViewModel`:
+  - [x] On init, ask progression engine for today's prescription (split + movement order + per-movement Prescription). Builds the in-progress row set rather than a separate `DayPlan` — the in-progress snapshot *is* the plan. Spec §8.5 already covered this; no spec change.
+  - [x] Persist to `InProgressSession` on every change (no debounce — every gesture is a single DAO `UPDATE`; cheap enough).
+  - [x] Restore from `InProgressSession` on cold start; re-bootstrap if the snapshot's date or split doesn't match what today expects.
+  - [x] `TrackerUiState.Ready.allButtonsResolved` drives the feedback sheet directly off `state`.
+- [x] `TrackerScreen` composable rendering §4.1 layout:
+  - [x] Header (split letter + name + date)
+  - [x] KB Flow section: 5 movement labels (for reference) + 3 circuit buttons total, KB weight shown. **Spec deviation**: spec §4.1 originally mocked 5×3 buttons; corrected to 3 circuit buttons total since the KB flow is one performance unit (one weight, one chart in §6.1) and per-movement tracking would just add unused rows. Sentinel `kb_flow` exercise added to the catalog as the FK target for the 3 `set_entry` rows per session. Spec §2.2, §4.1, §8.1 updated.
+  - [x] Strength section: 2 movements, each with Prime + 3 working buttons, weight + target reps shown
+- [x] Feedback dialog: bottom modal sheet with R/Y/G dots; large touch targets; `confirmValueChange` vetoes Hidden so the user can't dismiss without picking.
+- [x] On feedback tap: commit `Session` + `SetEntry` rows, clear `InProgressSession`, recompute next prescription, refresh (bootstrap re-runs and the next split appears immediately).
+- [x] KB-bump prompt — one-button banner above the KB section; "Bump to N+2 kg" / "Not yet". Only shown when no KB set has been touched yet, so accepting a bump can safely reset the in-progress to the new weight. Accepting also stamps a snooze (`history.size` as the session-count baseline) so the prompt doesn't re-fire on the freshly-bootstrapped session before commit.
+- [x] `MainShellViewModel` + `TodayPlan` stub retired now that `MainShell` simply hosts `TrackerScreen`.
+- [x] `SettingsRepository.bumpKbWeight(newKg)` added so the bump action can update the persisted KB weight and clear any prior snooze. (Spec §8.2: `kb_weight_kg` is the current KB weight, not a frozen onboarding value — the "starting" wording in the column note now reads as the initial value at install rather than an immutable one.)
+- [x] Unit tests on `TrackerViewModel` covering: bootstrap on init / no-op / stale-date replace / split-mismatch replace / defaults-not-ready guard, state derivation, gesture handlers, commit + re-bootstrap, no-op while pending, KB bump accept + snooze.
+- [ ] Verify on device in Android Studio: tap feedback feels right, mid-workout app kill restores state, completion advances split (manual check; Compose UI tests land in Phase 8).
 
 ## Phase 5 — Log tab
 

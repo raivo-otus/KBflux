@@ -14,7 +14,7 @@ class ExerciseCatalogTest {
 
     @Test
     fun `kb flow contains exactly the five canonical movements`() {
-        val slugs = ExerciseCatalog.kbFlow.map { it.slug }
+        val slugs = ExerciseCatalog.kbFlowMovements.map { it.slug }
 
         assertThat(slugs).containsExactly(
             "swings", "clean_and_press", "lunge", "goblet_squat", "push_up",
@@ -45,7 +45,7 @@ class ExerciseCatalogTest {
 
     @Test
     fun `KB movements step in 2 kg, strength in 2 point 5 kg, push-up does not step`() {
-        ExerciseCatalog.kbFlow.filter { it.slug != "push_up" }.forEach {
+        ExerciseCatalog.kbFlowMovements.filter { it.slug != "push_up" }.forEach {
             assertThat(it.weightStepKg).isEqualTo(2.0)
         }
         assertThat(ExerciseCatalog.PushUp.weightStepKg).isEqualTo(0.0)

@@ -61,4 +61,19 @@ class SettingsRepository @Inject constructor(
             ),
         )
     }
+
+    /**
+     * Bump the persisted KB weight and clear any active snooze. Called from the
+     * Tracker after the user accepts the monthly KB bump prompt (spec §9.3).
+     */
+    suspend fun bumpKbWeight(newKg: Double) {
+        val existing = settingsDao.get() ?: return
+        settingsDao.upsert(
+            existing.copy(
+                kbWeightKg = newKg,
+                kbBumpSnoozedAtMonth = null,
+                kbBumpSnoozeSessionCount = null,
+            ),
+        )
+    }
 }
