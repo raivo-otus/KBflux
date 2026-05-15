@@ -91,13 +91,15 @@ Goal: the only feature that has to feel right. Tap, see it stick, finish, get pr
 
 Goal: a glance shows the last few months at a feedback glance.
 
-- [ ] `LogViewModel`: emit a flat list of `DayCell` items (one per day from first-ever session to today + a buffer of future days)
-- [ ] `LogScreen` with a `LazyVerticalGrid` (7 columns) or `LazyColumn` of week rows
-- [ ] Insert empty row between months, month label at left of first row
-- [ ] Cell rendering: filled R/Y/G square, `–` for past empty, outlined square for future, thicker border for today
-- [ ] Auto-scroll to today on first open of the tab
-- [ ] Tap on a colored cell → bottom sheet with session detail (split, movements, weights, set outcomes, feedback). Read-only.
-- [ ] Verify: log scrolls smoothly with 6 months of synthetic data
+- [x] `LogViewModel`: reads `SessionRepository.observeAll()` and folds it into a `LogContent` of week rows (one Mon-Sun row per week from the earliest session's month through `today + 14 day buffer`). Pure folding logic lives in `ui/log/LogRowBuilder.kt` so it's unit-tested without a ViewModel harness.
+- [x] `LogScreen` with `LazyColumn` of week rows (one row per `LogRow.Week`, plus `LogRow.MonthGap` spacers).
+- [x] Insert empty row between months, month label at left of first row of each month. Days from an adjacent month inside the current month's grid render as `DayCellState.Outside` (blank padding) so weeks stay Mon-Sun aligned without double-counting boundary days.
+- [x] Cell rendering: filled R/Y/G square, `–` for past empty, outlined square for future, thicker (2dp vs 1dp) border for today.
+- [x] Auto-scroll to today on first open of the tab via `rememberSaveable hasScrolledToToday` flag — subsequent emits (e.g., session committed from Tracker tab) do not jerk the grid back to today.
+- [x] Tap on a colored cell → `ModalBottomSheet` with read-only session detail: split letter, KB weight + circuit statuses, each strength movement with weight + target reps + prime/working set glyphs (✓ / ✗ / ·), feedback pip.
+- [x] **Scaffolding deviation**: `MainShell` now hosts a temporary two-tab `TabRow` (Tracker / Log) so the Log screen is reachable for manual verification. Phase 7 replaces this with the three-tab bottom navigation bar. No spec change — spec §11 already calls out the bottom-nav shell as Phase 7 work; this is just a placeholder to keep Phases self-verifiable.
+- [x] Unit tests on `buildLogRows` (empty history, month label placement, Mon-Sun week shape, today flag, past/future/Outside states, month gaps, multi-month start, today-row index, future-buffer spilling, all three feedback colors) and on `LogViewModel` (Ready state, Logged cell wiring, `onCellTap` happy path / no-op / detail strength fidelity, `onDismissDetail`).
+- [ ] Verify on device in Android Studio: tab into Log, log scrolls smoothly with 6 months of synthetic data, tapping a colored cell opens the detail sheet. (Manual; Compose UI tests land in Phase 8.)
 
 ## Phase 6 — Progression tab
 

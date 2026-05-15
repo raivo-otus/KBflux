@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import java.time.Clock
 import java.time.LocalDate
 import java.time.YearMonth
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 /**
@@ -50,6 +51,8 @@ class TrackerViewModel @Inject constructor(
     private val inProgressRepository: InProgressRepository,
     private val clock: Clock,
 ) : ViewModel() {
+
+    private val committing = AtomicBoolean(false)
 
     val state: StateFlow<TrackerUiState> = combine(
         inProgressRepository.observe(),
@@ -73,20 +76,25 @@ class TrackerViewModel @Inject constructor(
     fun onSetLongPress(cell: SetCell) = updateSet(cell, SetStatus.Pending)
 
     fun onFeedback(feedback: Feedback) {
+        if (!committing.compareAndSet(false, true)) return
         viewModelScope.launch {
-            val snapshot = inProgressRepository.get() ?: return@launch
-            if (snapshot.sets.any { it.status == SetStatus.Pending }) return@launch
-            sessionRepository.addSession(
-                Session(
-                    date = snapshot.date,
-                    split = snapshot.split,
-                    feedback = feedback,
-                    kbWeightKg = snapshot.kbWeightKg,
-                    sets = snapshot.sets,
-                ),
-            )
-            inProgressRepository.clear()
-            bootstrapIfNeeded()
+            try {
+                val snapshot = inProgressRepository.get() ?: return@launch
+                if (snapshot.sets.any { it.status == SetStatus.Pending }) return@launch
+                sessionRepository.addSession(
+                    Session(
+                        date = snapshot.date,
+                        split = snapshot.split,
+                        feedback = feedback,
+                        kbWeightKg = snapshot.kbWeightKg,
+                        sets = snapshot.sets,
+                    ),
+                )
+                inProgressRepository.clear()
+                bootstrapIfNeeded()
+            } finally {
+                committing.set(false)
+            }
         }
     }
 
@@ -227,11 +235,11 @@ class TrackerViewModel @Inject constructor(
         )
 
         val (m1, m2) = movementOrder(history, snapshot.split)
-        val strengthRows = listOf(m1, m2).map { exercise ->
+        val strengthRows = listOf(m1, m2).mapNotNull { exercise ->
             val all = setsBySlug[exercise.slug].orEmpty()
-            val prime = all.first { it.isPriming }
+            val prime = all.firstOrNull { it.isPriming } ?: return@mapNotNull null
             val working = all.filter { !it.isPriming }.sortedBy { it.setIndex }
-            val reference = working.first()
+            val reference = working.firstOrNull() ?: return@mapNotNull null
             StrengthMovementRow(
                 exercise = exercise,
                 weightKg = reference.weightKg,

@@ -38,6 +38,8 @@ abstract class SessionDao {
 
     @Transaction
     open suspend fun insertSessionWithSets(session: SessionEntity, sets: List<SetEntryEntity>): Long {
+        val existing = getByDate(session.date)
+        if (existing != null) return existing.id
         val id = insertSession(session)
         insertSets(sets.map { it.copy(sessionId = id) })
         return id
