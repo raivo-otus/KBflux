@@ -54,7 +54,7 @@ class TrackerViewModel @Inject constructor(
     private val clock: Clock,
 ) : ViewModel() {
 
-    private val committing = AtomicBoolean(false)
+    private val processing = AtomicBoolean(false)
 
     private val historyFlow = sessionRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -62,17 +62,11 @@ class TrackerViewModel @Inject constructor(
     private val defaultsFlow = settingsRepository.observeOnboardingDefaults()
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    private val snoozeFlow = settingsRepository.observeKbBumpSnooze()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-
-    private val inProgressFlow = inProgressRepository.observe()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-
     val state: StateFlow<TrackerUiState> = combine(
-        inProgressFlow,
+        inProgressRepository.observe(),
         historyFlow,
         defaultsFlow,
-        snoozeFlow,
+        settingsRepository.observeKbBumpSnooze(),
     ) { inProgress, history, defaults, snooze ->
         if (defaults == null || inProgress == null) {
             TrackerUiState.Loading
@@ -95,7 +89,7 @@ class TrackerViewModel @Inject constructor(
     fun onSetLongPress(cell: SetCell) = updateSet(cell, SetStatus.Pending)
 
     fun onFeedback(feedback: Feedback) {
-        if (!committing.compareAndSet(false, true)) return
+        if (!processing.compareAndSet(false, true)) return
         viewModelScope.launch {
             try {
                 val snapshot = inProgressRepository.get() ?: return@launch
@@ -112,36 +106,63 @@ class TrackerViewModel @Inject constructor(
                 inProgressRepository.clear()
                 bootstrapIfNeeded()
             } finally {
-                committing.set(false)
+                processing.set(false)
             }
         }
     }
 
     fun onKbBumpAccept() {
+        if (!processing.compareAndSet(false, true)) return
         viewModelScope.launch {
-            val defaults = defaultsFlow.value ?: return@launch
-            val newKg = defaults.kbWeightKg + KB_BUMP_STEP_KG
-            settingsRepository.bumpKbWeight(newKg)
-            // Snooze stamp prevents the prompt from re-appearing immediately on
-            // the fresh in-progress (history hasn't recorded a session this month yet).
-            settingsRepository.saveKbBumpSnooze(
-                KbBumpSnooze(
-                    snoozedAtMonth = YearMonth.from(LocalDate.now(clock)),
-                    sessionCountAtSnooze = historyFlow.value.size,
-                ),
-            )
-            inProgressRepository.clear()
-            bootstrapIfNeeded()
+            try {
+                val defaults = defaultsFlow.value ?: return@launch
+                val newKg = defaults.kbWeightKg + KB_BUMP_STEP_KG
+                settingsRepository.bumpKbWeight(newKg)
+                // Snooze stamp prevents the prompt from re-appearing immediately on
+                // the fresh in-progress (history hasn't recorded a session this month yet).
+                settingsRepository.saveKbBumpSnooze(
+                    KbBumpSnooze(
+                        snoozedAtMonth = YearMonth.from(LocalDate.now(clock)),
+                        sessionCountAtSnooze = historyFlow.value.size,
+                    ),
+                )
+                inProgressRepository.clear()
+                bootstrapIfNeeded()
+            } finally {
+                processing.set(false)
+            }
         }
     }
 
     fun onKbBumpSnooze() {
+        if (!processing.compareAndSet(false, true)) return
         viewModelScope.launch {
-            settingsRepository.saveKbBumpSnooze(
-                KbBumpSnooze(
-                    snoozedAtMonth = YearMonth.from(LocalDate.now(clock)),
-                    sessionCountAtSnooze = historyFlow.value.size,
-                ),
+            try {
+                settingsRepository.saveKbBumpSnooze(
+                    KbBumpSnooze(
+                        snoozedAtMonth = YearMonth.from(LocalDate.now(clock)),
+                        sessionCountAtSnooze = historyFlow.value.size,
+                    ),
+                )
+            } finally {
+                processing.set(false)
+            }
+        }
+    }
+
+    fun forceSplit(split: Split) {
+        viewModelScope.launch {
+            val defaults = settingsRepository.getOnboardingDefaults() ?: return@launch
+            val history = sessionRepository.getAll()
+            val today = LocalDate.now(clock)
+
+            inProgressRepository.clear()
+            val sets = buildBootstrapSets(split, defaults, history)
+            inProgressRepository.start(
+                date = today,
+                split = split,
+                kbWeightKg = defaults.kbWeightKg,
+                sets = sets,
             )
         }
     }

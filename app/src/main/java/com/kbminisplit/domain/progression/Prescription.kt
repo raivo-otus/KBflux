@@ -30,7 +30,13 @@ fun prescription(
     if (lastWithMovement == null) {
         val startingWeight = onboarding.startingWeightsBySlug[exercise.slug]
             ?: error("No onboarding starting weight for ${exercise.slug}")
-        return Prescription(exercise, startingWeight, onboarding.startingTargetReps)
+        // If the global starting reps are outside this movement's range, use its minimum
+        val reps = if (onboarding.startingTargetReps > exercise.maxReps) {
+            exercise.minReps
+        } else {
+            onboarding.startingTargetReps.coerceAtLeast(exercise.minReps)
+        }
+        return Prescription(exercise, startingWeight, reps)
     }
 
     val workingSets = lastWithMovement.sets.filter {
@@ -44,7 +50,7 @@ fun prescription(
 
     return when {
         !allCompleted -> Prescription(exercise, weight, reps)
-        reps < 16 -> Prescription(exercise, weight, reps + 1)
-        else -> Prescription(exercise, weight + exercise.weightStepKg, 8)
+        reps < exercise.maxReps -> Prescription(exercise, weight, reps + 1)
+        else -> Prescription(exercise, weight + exercise.weightStepKg, exercise.minReps)
     }
 }

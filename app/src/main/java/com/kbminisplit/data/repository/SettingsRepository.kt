@@ -34,6 +34,9 @@ class SettingsRepository @Inject constructor(
     fun observeKbBumpSnooze(): Flow<KbBumpSnooze?> =
         settingsDao.observe().map { it.toKbBumpSnooze() }
 
+    fun observeIsDarkMode(): Flow<Boolean?> =
+        settingsDao.observe().map { it?.isDarkMode }
+
     suspend fun saveOnboarding(defaults: OnboardingDefaults) {
         val existing = settingsDao.get()
         settingsDao.upsert(
@@ -43,6 +46,7 @@ class SettingsRepository @Inject constructor(
                 startingTargetReps = defaults.startingTargetReps,
                 kbBumpSnoozedAtMonth = existing?.kbBumpSnoozedAtMonth,
                 kbBumpSnoozeSessionCount = existing?.kbBumpSnoozeSessionCount,
+                isDarkMode = existing?.isDarkMode,
             ),
         )
         settingsDao.upsertStartingWeights(
@@ -75,5 +79,16 @@ class SettingsRepository @Inject constructor(
                 kbBumpSnoozeSessionCount = null,
             ),
         )
+    }
+
+    suspend fun setDarkMode(enabled: Boolean?) {
+        val existing = settingsDao.get() ?: UserSettingsEntity(
+            onboardedAt = null,
+            kbWeightKg = null,
+            startingTargetReps = null,
+            kbBumpSnoozedAtMonth = null,
+            kbBumpSnoozeSessionCount = null,
+        )
+        settingsDao.upsert(existing.copy(isDarkMode = enabled))
     }
 }

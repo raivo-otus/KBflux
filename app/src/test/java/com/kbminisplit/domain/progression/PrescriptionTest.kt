@@ -169,4 +169,50 @@ class PrescriptionTest {
         assertThat(rowRx.weightKg).isEqualTo(40.0)
         assertThat(rowRx.targetReps).isEqualTo(8)
     }
+
+    @Test
+    fun `deadlift uses 4-8 rep range and 5kg leaps`() {
+        val deadlift = ExerciseCatalog.Deadlift
+        val onboarding = DEFAULT_ONBOARDING.copy(startingTargetReps = 8)
+
+        // 1. Success at 8 reps rolls weight by 5kg and resets to 4
+        // In Split.C, m2 is Deadlift
+        val history1 = listOf(
+            strengthSession(
+                date = LocalDate.of(2026, 5, 1),
+                split = Split.C,
+                m1Weight = 80.0,
+                m1Reps = 8,
+                m2Weight = 100.0,
+                m2Reps = 8,
+            ),
+        )
+        val rx1 = prescription(history1, deadlift, onboarding)
+        assertThat(rx1.weightKg).isEqualTo(105.0)
+        assertThat(rx1.targetReps).isEqualTo(4)
+
+        // 2. Success at 4 reps bumps to 5
+        val history2 = listOf(
+            strengthSession(
+                date = LocalDate.of(2026, 5, 1),
+                split = Split.C,
+                m1Weight = 80.0,
+                m1Reps = 8,
+                m2Weight = 100.0,
+                m2Reps = 4,
+            ),
+        )
+        val rx2 = prescription(history2, deadlift, onboarding)
+        assertThat(rx2.weightKg).isEqualTo(100.0)
+        assertThat(rx2.targetReps).isEqualTo(5)
+
+        // 3. Never logged uses onboarding reps but coerced if too high
+        // If onboarding is 8, deadlift uses 8.
+        val rx3 = prescription(emptyList(), deadlift, onboarding)
+        assertThat(rx3.targetReps).isEqualTo(8)
+
+        // If onboarding is 10, deadlift uses 4 (min) because 10 > max(8)
+        val rx4 = prescription(emptyList(), deadlift, onboarding.copy(startingTargetReps = 10))
+        assertThat(rx4.targetReps).isEqualTo(4)
+    }
 }

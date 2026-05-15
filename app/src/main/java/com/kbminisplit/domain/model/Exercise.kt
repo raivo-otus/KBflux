@@ -6,4 +6,6 @@ data class Exercise(
     val category: Category,
     val isPerSide: Boolean,
     val weightStepKg: Double,
+    val minReps: Int = 8,
+    val maxReps: Int = 16,
 )

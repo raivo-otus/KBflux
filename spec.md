@@ -210,7 +210,9 @@ Using Room (SQLite). Tables:
 | `display_name`    | TEXT    |                                                    |
 | `category`        | TEXT    | `KB` / `A` / `B` / `C`                             |
 | `is_per_side`     | BOOL    | for KB display formatting                          |
-| `weight_step_kg`  | REAL    | default 2.5; KB is 2.0                             |
+| `weight_step_kg`  | REAL    | default 2.5; KB is 2.0; Deadlift is 5.0            |
+| `min_reps`        | INTEGER | default 8; Deadlift is 4                           |
+| `max_reps`        | INTEGER | default 16; Deadlift is 8                          |
 
 Seeded at install time and re-checked on every DB open (`INSERT OR IGNORE`)
 so catalog rows added in later releases backfill into existing installs.
@@ -331,10 +333,10 @@ Let `all_working_completed` = every working set (3 of them) for this movement in
 Then for today:
 
 - If `all_working_completed` is **false** → repeat: same `W`, same `R`.
-- Else if `R < 16` → same `W`, target `R + 1`.
-- Else (`R == 16` and all completed) → `W + weight_step_kg`, target `8`.
+- Else if `R < max_reps` → same `W`, target `R + 1`.
+- Else (`R == max_reps` and all completed) → `W + weight_step_kg`, target `min_reps`.
 
-If this movement has never been logged → use the onboarding starting values (weight + 8 reps).
+If this movement has never been logged → use the onboarding starting values (weight + starting reps), coerced to the movement's `[min_reps, max_reps]` range.
 
 ### 9.3 KB weight progression
 

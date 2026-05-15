@@ -22,7 +22,15 @@ object ExerciseCatalog {
     val Bench = Exercise("bench", "Bench Press", Category.B, isPerSide = false, weightStepKg = 2.5)
     val Ohp = Exercise("ohp", "Overhead Press", Category.B, isPerSide = false, weightStepKg = 2.5)
     val HighBarSquat = Exercise("high_bar_squat", "High-Bar Squat", Category.C, isPerSide = false, weightStepKg = 2.5)
-    val Deadlift = Exercise("deadlift", "Deadlift", Category.C, isPerSide = false, weightStepKg = 2.5)
+    val Deadlift = Exercise(
+        slug = "deadlift",
+        displayName = "Deadlift",
+        category = Category.C,
+        isPerSide = false,
+        weightStepKg = 5.0,
+        minReps = 4,
+        maxReps = 8
+    )
 
     val all: List<Exercise> = listOf(
         Swings, CleanAndPress, Lunge, GobletSquat, PushUp, KbFlow,

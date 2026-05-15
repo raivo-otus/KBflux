@@ -1,9 +1,8 @@
 package com.kbminisplit.data.db
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Upsert
 import com.kbminisplit.data.entity.ExerciseEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -19,6 +18,6 @@ interface ExerciseDao {
     @Query("SELECT * FROM exercise WHERE slug = :slug LIMIT 1")
     suspend fun getBySlug(slug: String): ExerciseEntity?
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Upsert
     suspend fun insertAll(exercises: List<ExerciseEntity>)
 }

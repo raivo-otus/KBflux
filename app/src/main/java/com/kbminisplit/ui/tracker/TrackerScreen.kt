@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -248,9 +249,10 @@ private fun KbFlowSection(
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = "·${label.repsLabel}",
+                text = "x ${label.repsLabel}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End,
             )
         }
         Spacer(Modifier.height(6.dp))
@@ -288,13 +290,35 @@ private fun StrengthSection(
     onDoubleTap: (SetCell) -> Unit,
     onLongPress: (SetCell) -> Unit,
 ) {
-    SectionTitle(
-        text = "${row.exercise.displayName} · ${formatKg(row.weightKg)} kg · target ${row.targetReps} reps",
-    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = row.exercise.displayName,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = " x ${row.targetReps}",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = "${formatKg(row.weightKg)} kg",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.End,
+        )
+    }
     Spacer(Modifier.height(12.dp))
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SetButtonWithLabel(

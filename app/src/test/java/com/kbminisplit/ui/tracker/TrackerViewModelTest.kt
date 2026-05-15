@@ -21,7 +21,6 @@ import io.mockk.slot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -486,6 +485,20 @@ class TrackerViewModelTest {
 
             assertThat(capturedSnooze?.snoozedAtMonth).isEqualTo(YearMonth.from(today))
             assertThat(capturedSnooze?.sessionCountAtSnooze).isEqualTo(2)
+        }
+    }
+
+    @Test
+    fun `forceSplit replaces in-progress with specified split`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            assertThat(inProgressFlow.value!!.split).isEqualTo(Split.A)
+
+            vm.forceSplit(Split.C)
+            advanceUntilIdle()
+
+            assertThat(inProgressFlow.value!!.split).isEqualTo(Split.C)
         }
     }
 

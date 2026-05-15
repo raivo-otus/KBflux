@@ -10,9 +10,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Seeds the static exercise catalog. Idempotent — INSERT OR IGNORE makes
- * re-running on an already-seeded DB a no-op. Re-running on every open also
- * backfills rows added to [ExerciseCatalog] between releases.
+ * Seeds the static exercise catalog. Idempotent — [ExerciseDao.insertAll] uses
+ * `@Upsert` so re-running on an already-seeded DB is safe and backfills any
+ * changes or new rows added to [ExerciseCatalog] between releases.
  */
 suspend fun seedExerciseCatalog(database: AppDatabase) {
     val dao = database.exerciseDao()

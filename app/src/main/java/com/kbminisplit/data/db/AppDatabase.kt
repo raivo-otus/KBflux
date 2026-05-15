@@ -1,5 +1,6 @@
 package com.kbminisplit.data.db
 
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.kbminisplit.data.entity.ExerciseEntity
@@ -29,6 +30,10 @@ import com.kbminisplit.data.entity.UserSettingsEntity
         InProgressSetEntity::class,
     ],
     version = AppDatabase.DB_VERSION,
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2),
+        AutoMigration(from = 2, to = 3)
+    ],
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -40,6 +45,6 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val DB_NAME = "kbminisplit.db"
-        const val DB_VERSION = 1
+        const val DB_VERSION = 3
     }
 }

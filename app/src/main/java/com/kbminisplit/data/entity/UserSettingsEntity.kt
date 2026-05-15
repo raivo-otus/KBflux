@@ -11,6 +11,7 @@ data class UserSettingsEntity(
     val startingTargetReps: Int?,
     val kbBumpSnoozedAtMonth: String?,
     val kbBumpSnoozeSessionCount: Int?,
+    val isDarkMode: Boolean? = null,
 ) {
     companion object {
         const val SINGLETON_ID = 0

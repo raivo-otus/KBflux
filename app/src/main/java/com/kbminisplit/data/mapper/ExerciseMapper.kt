@@ -10,6 +10,8 @@ fun ExerciseEntity.toDomain(): Exercise = Exercise(
     category = Category.valueOf(category),
     isPerSide = isPerSide,
     weightStepKg = weightStepKg,
+    minReps = minReps,
+    maxReps = maxReps,
 )
 
 fun Exercise.toEntity(): ExerciseEntity = ExerciseEntity(
@@ -18,4 +20,6 @@ fun Exercise.toEntity(): ExerciseEntity = ExerciseEntity(
     category = category.name,
     isPerSide = isPerSide,
     weightStepKg = weightStepKg,
+    minReps = minReps,
+    maxReps = maxReps,
 )

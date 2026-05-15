@@ -45,7 +45,7 @@ class ProgressionViewModel @Inject constructor(
                     weightKg = session.kbWeightKg,
                     targetReps = null
                 )
-            }
+            }.takeLast(30)
 
             // Strength movements
             val strengthExercises = listOf(
@@ -70,7 +70,7 @@ class ProgressionViewModel @Inject constructor(
                         )
                     }
                 }
-                MovementProgression(exercise, dataPoints)
+                MovementProgression(exercise, dataPoints.takeLast(30))
             }
 
             ProgressionUiState(

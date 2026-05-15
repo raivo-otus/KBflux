@@ -1,5 +1,6 @@
 package com.kbminisplit.ui.progression
 
+import android.graphics.DashPathEffect
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,17 +19,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberBottom
+import com.patrykandpatrick.vico.compose.cartesian.axis.rememberEnd
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberStart
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLine
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.compose.cartesian.rememberVicoZoomState
 import com.patrykandpatrick.vico.compose.common.fill
+import com.patrykandpatrick.vico.core.cartesian.axis.Axis
 import com.patrykandpatrick.vico.core.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.core.cartesian.axis.VerticalAxis
 import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
@@ -46,14 +50,14 @@ fun ProgressionScreen(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         item {
             Column {
                 Text(
                     text = uiState.kbProgression.exercise.displayName,
                     style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = 8.dp),
                 )
                 MovementChart(uiState.kbProgression)
             }
@@ -63,7 +67,7 @@ fun ProgressionScreen(
                 Text(
                     text = progression.exercise.displayName,
                     style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = 8.dp),
                 )
                 MovementChart(progression)
             }
@@ -99,41 +103,73 @@ fun MovementChart(progression: MovementProgression) {
         progression.dataPoints.first().date
     }
     val dateTimeFormatter = remember { DateTimeFormatter.ofPattern("MMM d") }
+    val hasReps = remember(progression.dataPoints) {
+        progression.dataPoints.any { it.targetReps != null }
+    }
 
-    LaunchedEffect(progression.dataPoints) {
+    LaunchedEffect(progression.dataPoints, hasReps) {
         modelProducer.runTransaction {
-            lineSeries {
-                series(
-                    x = progression.dataPoints.map { ChronoUnit.DAYS.between(firstDate, it.date).toDouble() },
-                    y = progression.dataPoints.map { it.weightKg }
-                )
-                if (progression.dataPoints.any { it.targetReps != null }) {
+            if (hasReps) {
+                lineSeries {
                     series(
                         x = progression.dataPoints.map { ChronoUnit.DAYS.between(firstDate, it.date).toDouble() },
                         y = progression.dataPoints.map { it.targetReps?.toDouble() ?: 0.0 }
                     )
                 }
             }
+            lineSeries {
+                series(
+                    x = progression.dataPoints.map { ChronoUnit.DAYS.between(firstDate, it.date).toDouble() },
+                    y = progression.dataPoints.map { it.weightKg }
+                )
+            }
         }
     }
 
     val weightColor = MaterialTheme.colorScheme.primary
     val repsColor = MaterialTheme.colorScheme.outline
+    val density = LocalDensity.current
+
+    val weightLine = LineCartesianLayer.rememberLine(
+        fill = LineCartesianLayer.LineFill.single(fill(weightColor)),
+        areaFill = LineCartesianLayer.AreaFill.single(fill(weightColor.copy(alpha = 0.2f))),
+        pointConnector = SteppedPointConnector
+    )
+
+    val repsLine = remember(repsColor, density) {
+        val dashPx = with(density) { 4.dp.toPx() }
+        val gapPx = with(density) { 2.dp.toPx() }
+        object : LineCartesianLayer.Line(
+            fill = LineCartesianLayer.LineFill.single(fill(repsColor)),
+            thicknessDp = 2f
+        ) {
+            init {
+                linePaint.pathEffect = DashPathEffect(floatArrayOf(dashPx, gapPx), 0f)
+            }
+        }
+    }
+
+    val repsLayer = if (hasReps) {
+        rememberLineCartesianLayer(
+            lineProvider = LineCartesianLayer.LineProvider.series(repsLine),
+            verticalAxisPosition = Axis.Position.Vertical.Start
+        )
+    } else null
+
+    val weightLayer = rememberLineCartesianLayer(
+        lineProvider = LineCartesianLayer.LineProvider.series(weightLine),
+        verticalAxisPosition = Axis.Position.Vertical.End
+    )
+
+    val layers = remember(repsLayer, weightLayer) {
+        listOfNotNull(repsLayer, weightLayer).toTypedArray()
+    }
 
     CartesianChartHost(
         chart = rememberCartesianChart(
-            rememberLineCartesianLayer(
-                lineProvider = LineCartesianLayer.LineProvider.series(
-                    LineCartesianLayer.rememberLine(
-                        fill = LineCartesianLayer.LineFill.single(fill(weightColor)),
-                        pointConnector = SteppedPointConnector
-                    ),
-                    LineCartesianLayer.rememberLine(
-                        fill = LineCartesianLayer.LineFill.single(fill(repsColor))
-                    )
-                )
-            ),
-            startAxis = VerticalAxis.rememberStart(),
+            *layers,
+            startAxis = if (hasReps) VerticalAxis.rememberStart() else null,
+            endAxis = VerticalAxis.rememberEnd(),
             bottomAxis = HorizontalAxis.rememberBottom(
                 valueFormatter = { _, value, _ ->
                     firstDate.plusDays(value.toLong()).format(dateTimeFormatter)
