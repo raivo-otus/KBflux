@@ -3,7 +3,8 @@ package com.kbminisplit.ui.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -12,15 +13,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -43,6 +45,7 @@ import com.kbminisplit.domain.model.SetStatus
  * correct a double-tap-too-many: tap unconditionally moves toward Completed,
  * double-tap toward Failed.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SetButton(
     status: SetStatus,
@@ -53,6 +56,10 @@ fun SetButton(
     modifier: Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
+    val currentStatus by rememberUpdatedState(status)
+    val currentOnComplete by rememberUpdatedState(onComplete)
+    val currentOnFail by rememberUpdatedState(onFail)
+    val currentOnRevert by rememberUpdatedState(onRevert)
     val targetScale = if (status == SetStatus.Pending) 1f else 1.04f
     val scale by animateFloatAsState(
         targetValue = targetScale,
@@ -74,26 +81,24 @@ fun SetButton(
             .scale(scale)
             .semantics {
                 this.contentDescription = contentDescription
-                this.role = Role.Button
             }
-            .pointerInput(status) {
-                detectTapGestures(
-                    onTap = {
+            .combinedClickable(
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    currentOnComplete()
+                },
+                onDoubleClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    currentOnFail()
+                },
+                onLongClick = {
+                    if (currentStatus != SetStatus.Pending) {
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onComplete()
-                    },
-                    onDoubleTap = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onFail()
-                    },
-                    onLongPress = {
-                        if (status != SetStatus.Pending) {
-                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onRevert()
-                        }
-                    },
-                )
-            },
+                        currentOnRevert()
+                    }
+                },
+                role = Role.Button,
+            ),
         shape = CircleShape,
         color = background,
         border = BorderStroke(1.5.dp, border),

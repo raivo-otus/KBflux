@@ -35,11 +35,15 @@ fun shouldPromptKbBump(
 ): Boolean {
     val thisMonth = YearMonth.from(today)
 
+    // A snooze within the current month suppresses the prompt unless enough
+    // sessions have passed. This check takes priority.
     if (snooze != null && snooze.snoozedAtMonth == thisMonth) {
         val sessionsSinceSnooze = history.size - snooze.sessionCountAtSnooze
         return sessionsSinceSnooze >= 2
     }
 
+    // Standard prompt: first session of the month, provided the prior month
+    // had at least one session.
     val sessionsThisMonth = history.count { YearMonth.from(it.date) == thisMonth }
     if (sessionsThisMonth > 0) return false
 

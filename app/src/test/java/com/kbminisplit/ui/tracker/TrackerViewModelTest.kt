@@ -431,8 +431,10 @@ class TrackerViewModelTest {
             val vm = newViewModel()
             advanceUntilIdle()
 
-            val snoozeCapture = slot<KbBumpSnooze?>()
-            coEvery { settingsRepository.saveKbBumpSnooze(capture(snoozeCapture)) } returns Unit
+            var capturedSnooze: KbBumpSnooze? = null
+            coEvery { settingsRepository.saveKbBumpSnooze(any()) } answers {
+                capturedSnooze = firstArg()
+            }
             coEvery { settingsRepository.bumpKbWeight(any()) } answers {
                 defaultsFlow.value = defaultsFlow.value!!.copy(kbWeightKg = firstArg())
             }
@@ -441,8 +443,8 @@ class TrackerViewModelTest {
             advanceUntilIdle()
 
             coVerify { settingsRepository.bumpKbWeight(18.0) }
-            assertThat(snoozeCapture.captured?.snoozedAtMonth).isEqualTo(YearMonth.from(today))
-            assertThat(snoozeCapture.captured?.sessionCountAtSnooze).isEqualTo(1)
+            assertThat(capturedSnooze?.snoozedAtMonth).isEqualTo(YearMonth.from(today))
+            assertThat(capturedSnooze?.sessionCountAtSnooze).isEqualTo(1)
             // Bootstrap re-ran and the new in-progress carries the bumped weight.
             assertThat(inProgressFlow.value!!.kbWeightKg).isEqualTo(18.0)
         }
@@ -458,14 +460,16 @@ class TrackerViewModelTest {
             val vm = newViewModel()
             advanceUntilIdle()
 
-            val snoozeCapture = slot<KbBumpSnooze?>()
-            coEvery { settingsRepository.saveKbBumpSnooze(capture(snoozeCapture)) } returns Unit
+            var capturedSnooze: KbBumpSnooze? = null
+            coEvery { settingsRepository.saveKbBumpSnooze(any()) } answers {
+                capturedSnooze = firstArg()
+            }
 
             vm.onKbBumpSnooze()
             advanceUntilIdle()
 
-            assertThat(snoozeCapture.captured?.snoozedAtMonth).isEqualTo(YearMonth.from(today))
-            assertThat(snoozeCapture.captured?.sessionCountAtSnooze).isEqualTo(2)
+            assertThat(capturedSnooze?.snoozedAtMonth).isEqualTo(YearMonth.from(today))
+            assertThat(capturedSnooze?.sessionCountAtSnooze).isEqualTo(2)
         }
     }
 

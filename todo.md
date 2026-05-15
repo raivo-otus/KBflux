@@ -105,22 +105,22 @@ Goal: a glance shows the last few months at a feedback glance.
 
 Goal: see the line go up.
 
-- [ ] `ProgressionViewModel`: per movement, emit a `List<DataPoint>` of (date, weight, target reps) ordered by date
-- [ ] Vico chart setup with monochrome theming
-- [ ] `ProgressionScreen`: vertical scroll of one chart per movement (KB + 6 strength)
-- [ ] Stepped line (weight constant until bump)
-- [ ] Secondary indicator for target reps at each weight (small label or thin line)
-- [ ] Pinch-to-zoom on the time axis
-- [ ] Verify: charts render with synthetic data spanning a few months
+- [x] `ProgressionViewModel`: per movement, emit a `List<DataPoint>` of (date, weight, target reps) ordered by date
+- [x] Vico chart setup with monochrome theming
+- [x] `ProgressionScreen`: vertical scroll of one chart per movement (KB + 6 strength)
+- [x] Stepped line (weight constant until bump)
+- [x] Secondary indicator for target reps at each weight (small label or thin line)
+- [x] Pinch-to-zoom on the time axis
+- [x] Verify: charts render with synthetic data spanning a few months
 
 ## Phase 7 — Navigation shell
 
 Goal: glue the tabs together.
 
-- [ ] Bottom navigation bar with three icons: Tracker, Log, Progression
-- [ ] Nav graph wiring screens
-- [ ] Decide on tab-state preservation policy (keep tab state across switches, reset Tracker if a new day starts)
-- [ ] Splash → onboarding-or-main branch on launch
+- [x] Bottom navigation bar with three icons: Tracker, Log, Progression
+- [x] Nav graph wiring screens
+- [x] Decide on tab-state preservation policy (keep tab state across switches, reset Tracker if a new day starts)
+- [x] Splash → onboarding-or-main branch on launch
 
 ## Phase 8 — Polish & verification
 

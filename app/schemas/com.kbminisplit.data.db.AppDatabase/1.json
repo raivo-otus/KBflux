@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "54125c943ff70ffe5f63be1c462993db",
+    "identityHash": "120d38f3c07ec4839e5b82e2cf2d227d",
     "entities": [
       {
         "tableName": "exercise",
@@ -176,12 +176,12 @@
         "indices": [
           {
             "name": "index_session_date",
-            "unique": true,
+            "unique": false,
             "columnNames": [
               "date"
             ],
             "orders": [],
-            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_session_date` ON `${TABLE_NAME}` (`date`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_session_date` ON `${TABLE_NAME}` (`date`)"
           }
         ]
       },
@@ -406,7 +406,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '54125c943ff70ffe5f63be1c462993db')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '120d38f3c07ec4839e5b82e2cf2d227d')"
     ]
   }
 }

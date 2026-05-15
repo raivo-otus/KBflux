@@ -78,6 +78,18 @@ private fun Session.toDetail(): SessionDetail {
 private fun List<SetEntry>.toStrengthDetail(slug: String): StrengthDetail {
     val prime = firstOrNull { it.isPriming }
     val working = filter { !it.isPriming }.sortedBy { it.setIndex }
+    
+    // Defensive fallback: if bootstrap somehow missed sets or data is corrupt.
+    if (prime == null && working.isEmpty()) {
+        return StrengthDetail(
+            exerciseDisplayName = ExerciseCatalog.bySlug(slug)?.displayName ?: slug,
+            weightKg = 0.0,
+            targetReps = 0,
+            primeStatus = SetStatus.Pending,
+            workingStatuses = emptyList(),
+        )
+    }
+
     val referenceWeight = (working.firstOrNull() ?: prime)?.weightKg ?: 0.0
     val targetReps = working.firstOrNull()?.targetReps ?: 0
     return StrengthDetail(

@@ -1,6 +1,7 @@
 package com.kbminisplit.data.mapper
 
 import com.kbminisplit.data.entity.SessionEntity
+import com.kbminisplit.data.entity.SessionWithSets
 import com.kbminisplit.data.entity.SetEntryEntity
 import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.Session
@@ -35,6 +36,8 @@ fun SessionEntity.toDomain(sets: List<SetEntryEntity>): Session = Session(
     kbWeightKg = kbWeightKg,
     sets = sets.map { it.toDomain() },
 )
+
+fun SessionWithSets.toDomain(): Session = session.toDomain(sets)
 
 fun Session.toEntity(completedAt: Long): SessionEntity = SessionEntity(
     date = date.toString(),

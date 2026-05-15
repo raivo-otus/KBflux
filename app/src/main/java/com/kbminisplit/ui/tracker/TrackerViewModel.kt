@@ -54,11 +54,23 @@ class TrackerViewModel @Inject constructor(
 
     private val committing = AtomicBoolean(false)
 
+    private val historyFlow = sessionRepository.observeAll()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val defaultsFlow = settingsRepository.observeOnboardingDefaults()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private val snoozeFlow = settingsRepository.observeKbBumpSnooze()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private val inProgressFlow = inProgressRepository.observe()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     val state: StateFlow<TrackerUiState> = combine(
-        inProgressRepository.observe(),
-        sessionRepository.observeAll(),
-        settingsRepository.observeOnboardingDefaults(),
-        settingsRepository.observeKbBumpSnooze(),
+        inProgressFlow,
+        historyFlow,
+        defaultsFlow,
+        snoozeFlow,
     ) { inProgress, history, defaults, snooze ->
         if (defaults == null || inProgress == null) {
             TrackerUiState.Loading
@@ -100,7 +112,7 @@ class TrackerViewModel @Inject constructor(
 
     fun onKbBumpAccept() {
         viewModelScope.launch {
-            val defaults = settingsRepository.getOnboardingDefaults() ?: return@launch
+            val defaults = defaultsFlow.value ?: return@launch
             val newKg = defaults.kbWeightKg + KB_BUMP_STEP_KG
             settingsRepository.bumpKbWeight(newKg)
             // Snooze stamp prevents the prompt from re-appearing immediately on
@@ -108,7 +120,7 @@ class TrackerViewModel @Inject constructor(
             settingsRepository.saveKbBumpSnooze(
                 KbBumpSnooze(
                     snoozedAtMonth = YearMonth.from(LocalDate.now(clock)),
-                    sessionCountAtSnooze = sessionRepository.getAll().size,
+                    sessionCountAtSnooze = historyFlow.value.size,
                 ),
             )
             inProgressRepository.clear()
@@ -121,7 +133,7 @@ class TrackerViewModel @Inject constructor(
             settingsRepository.saveKbBumpSnooze(
                 KbBumpSnooze(
                     snoozedAtMonth = YearMonth.from(LocalDate.now(clock)),
-                    sessionCountAtSnooze = sessionRepository.getAll().size,
+                    sessionCountAtSnooze = historyFlow.value.size,
                 ),
             )
         }
@@ -140,7 +152,7 @@ class TrackerViewModel @Inject constructor(
 
     private suspend fun bootstrapIfNeeded() {
         val defaults = settingsRepository.getOnboardingDefaults() ?: return
-        val history = sessionRepository.getAll()
+        val history = historyFlow.value.ifEmpty { sessionRepository.getAll() }
         val today = LocalDate.now(clock)
         val expectedSplit = nextSplit(history)
         val existing = inProgressRepository.get()
