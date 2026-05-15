@@ -25,15 +25,15 @@ Goal: empty app launches to a blank screen on an emulator.
 
 Goal: progression rules implemented as pure functions with exhaustive unit tests. This is the heart of the app — get it right before touching UI.
 
-- [ ] Enums: `Split { A, B, C }`, `SetStatus { Pending, Completed, Failed }`, `Feedback { Red, Yellow, Green }`, `Category { KB, A, B, C }`
-- [ ] Catalog: `Exercise` value class / sealed class with the canonical list — Swings, Clean & Press, Lunge, Goblet Squat, Push-up, Lat Pulldown, Barbell Row, Bench, OHP, High-Bar Squat, Deadlift — each tagged with category, `is_per_side`, `weight_step_kg`
-- [ ] Domain models: `Session`, `SetEntry`, `Prescription` (today's target for one movement: weight, reps), `DayPlan` (KB block + ordered strength pair)
-- [ ] `progression/nextSplit.kt` — `nextSplit(history): Split` (defaults to `A`)
-- [ ] `progression/prescription.kt` — implement §9.2 rules: same/fail → repeat; success & R<16 → R+1; success & R=16 → +step, reset to 8; never logged → onboarding values
-- [ ] `progression/movementOrder.kt` — alternate Movement 1 / Movement 2 order each cycle (parity on count of past sessions of that split)
-- [ ] `progression/kbBumpPrompt.kt` — should-prompt logic per §9.3 (first session of new calendar month + prior month had ≥1 session, snooze for 2 sessions if dismissed)
-- [ ] Unit tests covering: empty history, single past session, all-completed, mixed fail, weight rollover at R=16, KB prompt timing, snooze behavior, movement-order alternation across 6+ cycles
-- [ ] Verify: `./gradlew test` green, progression engine has no Android imports
+- [x] Enums: `Split { A, B, C }`, `SetStatus { Pending, Completed, Failed }`, `Feedback { Red, Yellow, Green }`, `Category { KB, A, B, C }`
+- [x] Catalog: `Exercise` value class / sealed class with the canonical list — Swings, Clean & Press, Lunge, Goblet Squat, Push-up, Lat Pulldown, Barbell Row, Bench, OHP, High-Bar Squat, Deadlift — each tagged with category, `is_per_side`, `weight_step_kg`
+- [x] Domain models: `Session`, `SetEntry`, `Prescription` (today's target for one movement: weight, reps), `DayPlan` (KB block + ordered strength pair)
+- [x] `progression/nextSplit.kt` — `nextSplit(history): Split` (defaults to `A`)
+- [x] `progression/prescription.kt` — implement §9.2 rules: same/fail → repeat; success & R<16 → R+1; success & R=16 → +step, reset to 8; never logged → onboarding values
+- [x] `progression/movementOrder.kt` — alternate Movement 1 / Movement 2 order each cycle (parity on count of past sessions of that split)
+- [x] `progression/kbBumpPrompt.kt` — should-prompt logic per §9.3 (first session of new calendar month + prior month had ≥1 session, snooze for 2 sessions if dismissed)
+- [x] Unit tests covering: empty history, single past session, all-completed, mixed fail, weight rollover at R=16, KB prompt timing, snooze behavior, movement-order alternation across 6+ cycles
+- [x] Verify: `./gradlew test` green, progression engine has no Android imports
 
 ## Phase 2 — Data layer (Room)
 
