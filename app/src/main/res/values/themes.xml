@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Host theme for the single Activity. Compose's KBMiniSplitTheme owns content theming;
+        this entry just provides a NoActionBar window background for the launch frame.
+    -->
+    <style name="Theme.KBMiniSplit" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

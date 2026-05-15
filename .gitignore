@@ -1,0 +1,51 @@
+# --- Android ---
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+*.class
+
+bin/
+gen/
+out/
+build/
+release/
+
+# Gradle
+.gradle/
+local.properties
+
+# Keystores
+*.jks
+*.keystore
+
+# Native build
+.externalNativeBuild/
+.cxx/
+
+# Lint
+lint/intermediates/
+lint/generated/
+lint/outputs/
+lint/tmp/
+
+# Android Studio captures
+captures/
+
+# Coverage
+*.exec
+
+# --- JetBrains (IntelliJ / Android Studio) ---
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# --- Kotlin ---
+.kotlin/
+
+# --- macOS / misc ---
+.DS_Store
+Thumbs.db
+*.log
