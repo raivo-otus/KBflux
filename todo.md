@@ -39,15 +39,15 @@ Goal: progression rules implemented as pure functions with exhaustive unit tests
 
 Goal: a clean repository API the UI can lean on, backed by SQLite.
 
-- [ ] Room entities mirroring §8: `ExerciseEntity`, `UserSettingsEntity`, `SessionEntity`, `SetEntryEntity`, `InProgressSessionEntity`
-- [ ] DAOs: queries needed by progression (history for a movement, last session, list by date range), inserts, deletes for in-progress
-- [ ] `AppDatabase` with migrations infrastructure even if v1 has none (set version=1, document policy)
-- [ ] Seed exercise catalog on first DB open (via `RoomDatabase.Callback`)
-- [ ] Mappers: entity ↔ domain
-- [ ] Repositories: `SessionRepository`, `SettingsRepository`, `InProgressRepository` — Flow-returning where reactive, suspend for writes
-- [ ] Hilt module wiring DB + DAOs + repos
-- [ ] Instrumented tests on in-memory Room: seed correctness, session insert + query, in-progress upsert/clear
-- [ ] Verify: DB inspector shows seeded exercises after first launch
+- [x] Room entities mirroring §8: `ExerciseEntity`, `UserSettingsEntity`, `StartingWeightEntity`, `SessionEntity`, `SetEntryEntity`, `InProgressSessionEntity`, `InProgressSetEntity` (spec §8 updated to record the slug-PK / two-table in-progress / starting-weight deviations)
+- [x] DAOs: queries needed by progression (history, by-date, date range), inserts, transactional session+sets insert, in-progress upsert/clear
+- [x] `AppDatabase` (version=1, `exportSchema=true` → `app/schemas/`, migration policy documented in KDoc — no destructive migrations)
+- [x] Seed exercise catalog via `RoomDatabase.Callback` (idempotent on every open)
+- [x] Mappers: entity ↔ domain (`ExerciseMapper`, `SessionMapper`, `SettingsMapper`, `InProgressMapper`)
+- [x] Repositories: `SessionRepository`, `SettingsRepository`, `InProgressRepository` — Flow-returning where reactive, suspend for writes
+- [x] Hilt module wiring DB + DAOs + `Clock`
+- [x] Instrumented tests on in-memory Room: seed correctness + idempotency, session round-trip, observe-between, in-progress upsert/clear, settings + snooze preservation
+- [ ] Verify in Android Studio: DB inspector shows seeded exercises after first launch
 
 ## Phase 3 — Onboarding
 

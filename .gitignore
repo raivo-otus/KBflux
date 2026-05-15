@@ -49,3 +49,6 @@ captures/
 .DS_Store
 Thumbs.db
 *.log
+
+# Android Studio exported test reports
+Test Results*.html
