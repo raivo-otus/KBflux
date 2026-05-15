@@ -184,7 +184,11 @@ A short flow, one screen per question, swipe-forward style:
 2. "Starting working weights" — six numeric entries (one per strength movement), with sensible placeholder defaults.
 3. "Starting target reps" — single value (default **8**), applied to all strength movements.
 
-On completion, an initial state is persisted. The app opens to the Tracker on **Session A**.
+On completion the persisted "initial state" is the row in `user_settings`
+plus the six `starting_weight` rows; together they form the
+`OnboardingDefaults` sentinel that the progression engine reads when a
+movement has no session history (§9.2). No synthetic "session 0" row is
+written. The app then opens to the Tracker on **Session A**.
 
 ## 8. Data Model
 
@@ -227,6 +231,14 @@ so catalog rows added in later releases backfill into existing installs.
 Together with `user_settings.kb_weight_kg` and `starting_target_reps`, this is
 what the progression engine reads as `OnboardingDefaults` when a movement has
 no history.
+
+`saveOnboarding` writes `user_settings` and the six `starting_weight` rows in
+two sequential DAO calls; each table's reactive `Flow` invalidates separately,
+so for one tick a consumer can see settings present and weights still empty.
+The `buildOnboardingDefaults` mapper guards against this by returning `null`
+until every strength slug has a `starting_weight` row, so observers (e.g. the
+post-onboarding Tracker bootstrap) only ever see a fully-formed
+`OnboardingDefaults`.
 
 ### 8.3 `session`
 

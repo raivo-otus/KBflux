@@ -47,20 +47,23 @@ Goal: a clean repository API the UI can lean on, backed by SQLite.
 - [x] Repositories: `SessionRepository`, `SettingsRepository`, `InProgressRepository` — Flow-returning where reactive, suspend for writes
 - [x] Hilt module wiring DB + DAOs + `Clock`
 - [x] Instrumented tests on in-memory Room: seed correctness + idempotency, session round-trip, observe-between, in-progress upsert/clear, settings + snooze preservation
-- [ ] Verify in Android Studio: DB inspector shows seeded exercises after first launch
+- [x] Verify in Android Studio: DB inspector shows seeded exercises after first launch
 
 ## Phase 3 — Onboarding
 
 Goal: first launch collects starting weights and target reps, then opens Tracker.
 
-- [ ] `OnboardingViewModel` holding entered values in a single `StateFlow`
-- [ ] Three-step composable flow (HorizontalPager or simple step state):
-  - [ ] Step 1: KB weight (numeric, kg)
-  - [ ] Step 2: six starting weights (one per strength movement, with placeholders)
-  - [ ] Step 3: starting target reps (default 8)
-- [ ] Persist on completion → `UserSettings.onboarded_at` set, seed "starting prescriptions" (either as a sentinel row or by writing a synthetic "session 0" row that the progression engine treats as the baseline — decide and document)
-- [ ] App-launch branch in `MainActivity` or a root composable: if not onboarded → onboarding graph; else → main nav
-- [ ] Verify on a fresh install: flow completes, Tracker opens to Session A with the entered weights showing
+- [x] `OnboardingViewModel` holding entered values in a single `StateFlow`
+- [x] Three-step composable flow (HorizontalPager driven by step state, button-only nav):
+  - [x] Step 1: KB weight (numeric, kg) — pre-filled `16`
+  - [x] Step 2: six starting weights — all pre-filled with sensible defaults; user edits in place
+  - [x] Step 3: starting target reps — pre-filled `8`, validated to 1–16
+- [x] Persist on completion → `UserSettings.onboarded_at` set + six `starting_weight` rows. **Decision**: the persisted `OnboardingDefaults` (settings + starting_weight) is the sentinel — no synthetic "session 0" row. The progression engine already reads these as the baseline when a movement has no history (spec §9.2). Spec §7 + §8.2.1 updated.
+- [x] App-launch branch in a root composable (`ui/root/RootApp.kt` + `RootViewModel`) observing `SettingsRepository.observeIsOnboarded()`; routes to `OnboardingScreen` or `MainShell`. `MainActivity` now hosts `RootApp` instead of an empty Scaffold.
+- [x] Tightened `buildOnboardingDefaults` mapper to require every strength slug — closes a brief race where `user_settings` had been written but `starting_weight` rows hadn't yet, which would otherwise crash the prescription engine on never-logged movements (spec §8.2.1 deviation note).
+- [x] Phase 3 stub for the post-onboarding screen: `ui/main/MainShell` reads today's `TodayPlan` (split + KB weight + both strength prescriptions) via `MainShellViewModel` and renders it as text. Phase 4 replaces this with the real Tracker UI.
+- [x] Unit tests on `OnboardingViewModel` (mockk over `SettingsRepository`) covering: step navigation gating, validation (empty / non-numeric / zero / negative / out-of-range reps), comma decimal separator, `complete()` happy path with captured `OnboardingDefaults`, no-op when invalid, idempotency of repeated `complete()`.
+- [x] Verify on a fresh install in Android Studio: flow completes, Tracker stub shows Session A with the entered weights.
 
 ## Phase 4 — Tracker tab
 
