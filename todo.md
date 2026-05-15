@@ -19,7 +19,7 @@ Goal: empty app launches to a blank screen on an emulator.
 - [x] Configure `AndroidManifest.xml` — single Activity, portrait-locked, no special permissions
 - [x] Create monochrome Material 3 theme (`ui/theme/`): black/white/grays, override Material color scheme, define R/Y/G as feedback-only tokens
 - [x] `KBMiniSplitApp` (Hilt `@HiltAndroidApp`) + `MainActivity` (`@AndroidEntryPoint`, sets a `KBMiniSplitTheme { /* empty Scaffold */ }`)
-- [ ] Verify: `./gradlew assembleDebug` builds; app installs and launches.  *(blocked locally — no JDK / Android SDK on this machine; open in Android Studio to sync + verify, or install tooling and run `gradle wrapper` first to bootstrap the wrapper JAR)*
+- [x] Verify: `./gradlew assembleDebug` builds; app installs and launches.
 
 ## Phase 1 — Domain core (pure Kotlin, no Android deps)
 
