@@ -24,6 +24,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Clock
@@ -80,7 +82,12 @@ class TrackerViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, TrackerUiState.Loading)
 
     init {
-        viewModelScope.launch { bootstrapIfNeeded() }
+        viewModelScope.launch {
+            // Wait for defaults to be available before attempting first bootstrap.
+            // This prevents a race where init runs before the database is seeded or onboarded.
+            defaultsFlow.filterNotNull().first()
+            bootstrapIfNeeded()
+        }
     }
 
     fun onSetTap(cell: SetCell) = updateSet(cell, SetStatus.Completed)
@@ -152,9 +159,10 @@ class TrackerViewModel @Inject constructor(
 
     private suspend fun bootstrapIfNeeded() {
         val defaults = settingsRepository.getOnboardingDefaults() ?: return
-        val history = historyFlow.value.ifEmpty { sessionRepository.getAll() }
+        val history = sessionRepository.getAll()
         val today = LocalDate.now(clock)
         val expectedSplit = nextSplit(history)
+        val (m1, m2) = movementOrder(history, expectedSplit)
         val existing = inProgressRepository.get()
 
         val needsFresh = when {
@@ -165,6 +173,10 @@ class TrackerViewModel @Inject constructor(
             // KB rows instead of three `kb_flow` rows. Rebuild rather than render
             // an empty KB block.
             existing.sets.none { it.exerciseSlug == ExerciseCatalog.KbFlow.slug } -> true
+            // Movement-order guard: if history changed such that the expected
+            // exercises for this split flipped or changed, rebuild.
+            existing.sets.none { it.exerciseSlug == m1.slug } -> true
+            existing.sets.none { it.exerciseSlug == m2.slug } -> true
             else -> false
         }
         if (!needsFresh) return
@@ -285,6 +297,7 @@ class TrackerViewModel @Inject constructor(
             strength = strengthRows,
             allButtonsResolved = allResolved,
             kbBump = kbBump,
+            isFirstSession = history.isEmpty(),
         )
     }
 

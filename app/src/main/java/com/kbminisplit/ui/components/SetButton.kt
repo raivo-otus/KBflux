@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.kbminisplit.domain.model.SetStatus
 
@@ -81,6 +82,7 @@ fun SetButton(
             .scale(scale)
             .semantics {
                 this.contentDescription = contentDescription
+                this.stateDescription = status.name
             }
             .combinedClickable(
                 onClick = {

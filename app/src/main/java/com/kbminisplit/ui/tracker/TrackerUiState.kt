@@ -52,6 +52,7 @@ sealed interface TrackerUiState {
         val strength: List<StrengthMovementRow>,
         val allButtonsResolved: Boolean,
         val kbBump: KbBumpState?,
+        val isFirstSession: Boolean = false,
     ) : TrackerUiState
 }
 

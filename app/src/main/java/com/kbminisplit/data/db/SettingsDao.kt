@@ -28,4 +28,10 @@ interface SettingsDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertStartingWeights(weights: List<StartingWeightEntity>)
+
+    @Query("DELETE FROM user_settings")
+    suspend fun deleteSettings()
+
+    @Query("DELETE FROM starting_weight")
+    suspend fun deleteStartingWeights()
 }

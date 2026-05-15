@@ -160,6 +160,22 @@ class TrackerViewModelTest {
                     weightKg = 16.0,
                     status = SetStatus.Pending,
                 ),
+                SetEntry(
+                    exerciseSlug = ExerciseCatalog.LatPulldown.slug,
+                    setIndex = 0,
+                    isPriming = true,
+                    targetReps = null,
+                    weightKg = 50.0,
+                    status = SetStatus.Pending,
+                ),
+                SetEntry(
+                    exerciseSlug = ExerciseCatalog.BarbellRow.slug,
+                    setIndex = 0,
+                    isPriming = true,
+                    targetReps = null,
+                    weightKg = 40.0,
+                    status = SetStatus.Pending,
+                ),
             ),
         )
         runTest(testDispatcher) {

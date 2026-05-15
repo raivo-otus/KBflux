@@ -90,6 +90,11 @@ private fun ReadyContent(
             .padding(horizontal = 20.dp, vertical = 16.dp)
             .testTag("tracker_ready"),
     ) {
+        if (state.isFirstSession) {
+            FirstSessionBanner()
+            Spacer(Modifier.height(20.dp))
+        }
+
         Header(date = state.date, split = state.split)
 
         Spacer(Modifier.height(20.dp))
@@ -142,6 +147,29 @@ private fun ReadyContent(
             sheetState = sheetState,
         ) {
             FeedbackSheet(onFeedback = onFeedback)
+        }
+    }
+}
+
+@Composable
+private fun FirstSessionBanner() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        tonalElevation = 2.dp,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Welcome to your first session!",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Tap a button when you complete a set. Double-tap if you fail it.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
     }
 }

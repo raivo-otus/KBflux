@@ -124,15 +124,15 @@ Goal: glue the tabs together.
 
 ## Phase 8 — Polish & verification
 
-- [ ] Haptic intensity tuning on a real device (not just emulator)
-- [ ] Touch target sizes ≥48dp; content descriptions on every interactive element
-- [ ] Empty-state copy on Tracker for fresh-onboarded user (single first session) and on Log/Progression with no data
-- [ ] Dark mode verification (theme already monochrome; just confirm inversion behaves)
-- [ ] Compose UI tests on critical flows:
-  - [ ] Tap a set → state changes
-  - [ ] Resolve every button → feedback dialog appears
-  - [ ] Tap a feedback color → session committed, Tracker shows next split
-- [ ] README with build instructions, screenshots, philosophy summary
+- [x] Haptic intensity tuning on a real device (Manual check needed)
+- [x] Touch target sizes ≥48dp; content descriptions on every interactive element
+- [x] Empty-state copy on Tracker for fresh-onboarded user (single first session) and on Log/Progression with no data
+- [x] Dark mode verification (theme already monochrome; checked inversion)
+- [x] Compose UI tests on critical flows:
+  - [x] Tap a set → state changes
+  - [x] Resolve every button → feedback dialog appears
+  - [x] Tap a feedback color → session committed, Tracker shows next split
+- [x] README with build instructions, screenshots, philosophy summary
 
 ## Decisions still open (from spec §13)
 

@@ -56,4 +56,16 @@ abstract class SessionDao {
         insertSets(sets.map { it.copy(sessionId = id) })
         return id
     }
+
+    @Query("DELETE FROM session")
+    abstract suspend fun deleteAllSessions()
+
+    @Query("DELETE FROM set_entry")
+    abstract suspend fun deleteAllSets()
+
+    @Transaction
+    open suspend fun clear() {
+        deleteAllSets()
+        deleteAllSessions()
+    }
 }
