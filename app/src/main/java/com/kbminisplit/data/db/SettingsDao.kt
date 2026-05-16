@@ -11,10 +11,10 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface SettingsDao {
 
-    @Query("SELECT * FROM user_settings WHERE id = 0")
+    @Query("SELECT * FROM user_settings WHERE id = ${UserSettingsEntity.SINGLETON_ID}")
     fun observe(): Flow<UserSettingsEntity?>
 
-    @Query("SELECT * FROM user_settings WHERE id = 0")
+    @Query("SELECT * FROM user_settings WHERE id = ${UserSettingsEntity.SINGLETON_ID}")
     suspend fun get(): UserSettingsEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

@@ -41,4 +41,4 @@ Currently in Phase 8 (Polish & Verification). Core features are implemented:
 
 ## Spec
 
-The detailed implementation specification can be found in [spec.md](spec.md).
+The detailed implementation specification can be found in [docs/spec.md](docs/spec.md).

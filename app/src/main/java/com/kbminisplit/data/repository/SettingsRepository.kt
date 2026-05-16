@@ -37,6 +37,9 @@ class SettingsRepository @Inject constructor(
     fun observeIsDarkMode(): Flow<Boolean?> =
         settingsDao.observe().map { it?.isDarkMode }
 
+    fun observeHapticLevel(): Flow<Int> =
+        settingsDao.observe().map { it?.hapticLevel ?: 1 }
+
     suspend fun saveOnboarding(defaults: OnboardingDefaults) {
         val existing = settingsDao.get()
         settingsDao.upsert(
@@ -44,9 +47,11 @@ class SettingsRepository @Inject constructor(
                 onboardedAt = existing?.onboardedAt ?: clock.millis(),
                 kbWeightKg = defaults.kbWeightKg,
                 startingTargetReps = defaults.startingTargetReps,
+                standardMaxReps = defaults.standardMaxReps,
                 kbBumpSnoozedAtMonth = existing?.kbBumpSnoozedAtMonth,
                 kbBumpSnoozeSessionCount = existing?.kbBumpSnoozeSessionCount,
                 isDarkMode = existing?.isDarkMode,
+                hapticLevel = existing?.hapticLevel ?: 1,
             ),
         )
         settingsDao.upsertStartingWeights(
@@ -86,9 +91,22 @@ class SettingsRepository @Inject constructor(
             onboardedAt = null,
             kbWeightKg = null,
             startingTargetReps = null,
+            standardMaxReps = null,
             kbBumpSnoozedAtMonth = null,
             kbBumpSnoozeSessionCount = null,
         )
         settingsDao.upsert(existing.copy(isDarkMode = enabled))
+    }
+
+    suspend fun setHapticLevel(level: Int) {
+        val existing = settingsDao.get() ?: UserSettingsEntity(
+            onboardedAt = null,
+            kbWeightKg = null,
+            startingTargetReps = null,
+            standardMaxReps = null,
+            kbBumpSnoozedAtMonth = null,
+            kbBumpSnoozeSessionCount = null,
+        )
+        settingsDao.upsert(existing.copy(hapticLevel = level))
     }
 }

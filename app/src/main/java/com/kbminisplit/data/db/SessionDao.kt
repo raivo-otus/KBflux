@@ -48,6 +48,9 @@ abstract class SessionDao {
     abstract suspend fun insertSession(session: SessionEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
+    abstract suspend fun insertSessions(sessions: List<SessionEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     abstract suspend fun insertSets(sets: List<SetEntryEntity>)
 
     @Transaction

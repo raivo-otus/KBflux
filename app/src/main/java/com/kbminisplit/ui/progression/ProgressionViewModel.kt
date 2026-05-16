@@ -36,10 +36,11 @@ class ProgressionViewModel @Inject constructor(
 
     val uiState: StateFlow<ProgressionUiState> = sessionRepository.observeAll()
         .map { sessions ->
-            val sortedSessions = sessions.sortedBy { it.date }
+            // sessions are expected to be sorted by date from the DB.
+            val lastSessions = sessions.takeLast(60) // Buffer to ensure we have enough relevant points.
 
             // KB Flow
-            val kbDataPoints = sortedSessions.map { session ->
+            val kbDataPoints = lastSessions.map { session ->
                 ProgressionDataPoint(
                     date = session.date,
                     weightKg = session.kbWeightKg,
@@ -54,11 +55,11 @@ class ProgressionViewModel @Inject constructor(
                 ExerciseCatalog.Bench,
                 ExerciseCatalog.Ohp,
                 ExerciseCatalog.HighBarSquat,
-                ExerciseCatalog.Deadlift
+                ExerciseCatalog.RomanianDeadlift
             )
 
             val strengthProgression = strengthExercises.map { exercise ->
-                val dataPoints = sortedSessions.mapNotNull { session ->
+                val dataPoints = lastSessions.mapNotNull { session ->
                     // In our model, a strength movement in a session has 1 prime + 3 working sets.
                     // All 3 working sets share the same target weight and reps for that session.
                     val set = session.sets.firstOrNull { it.exerciseSlug == exercise.slug && !it.isPriming }
@@ -69,8 +70,8 @@ class ProgressionViewModel @Inject constructor(
                             targetReps = it.targetReps
                         )
                     }
-                }
-                MovementProgression(exercise, dataPoints.takeLast(30))
+                }.takeLast(30)
+                MovementProgression(exercise, dataPoints)
             }
 
             ProgressionUiState(

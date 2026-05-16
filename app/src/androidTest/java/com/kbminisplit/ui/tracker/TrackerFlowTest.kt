@@ -1,5 +1,6 @@
 package com.kbminisplit.ui.tracker
 
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasStateDescription
@@ -66,9 +67,10 @@ class TrackerFlowTest {
                         ExerciseCatalog.Bench.slug to 40.0,
                         ExerciseCatalog.Ohp.slug to 30.0,
                         ExerciseCatalog.HighBarSquat.slug to 40.0,
-                        ExerciseCatalog.Deadlift.slug to 60.0,
+                        ExerciseCatalog.RomanianDeadlift.slug to 60.0,
                     ),
                     startingTargetReps = 8,
+                    standardMaxReps = 12,
                 )
             )
         }
@@ -165,9 +167,19 @@ class TrackerFlowTest {
         // 6. Tap a feedback color (e.g., Green)
         composeTestRule.onNodeWithContentDescription("Feedback green").performClick()
 
-        // 7. Verify we are back on Tracker, now showing Split B
+        // 7. Verify Navigation to Log
         composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodes(hasTestTag("tab_log")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("tab_log").assertIsSelected()
+
+        // 8. Click Tracker tab to see next prescription
+        composeTestRule.onNodeWithTag("tab_tracker").performClick()
+
+        // 9. Verify we are back on Tracker, now showing Split B
+        composeTestRule.waitUntil(timeoutMillis = 10000) {
             composeTestRule.onAllNodes(hasContentDescription("Bench Press priming set")).fetchSemanticsNodes().isNotEmpty()
         }
+        composeTestRule.onNodeWithContentDescription("Bench Press priming set").assertIsDisplayed()
     }
 }

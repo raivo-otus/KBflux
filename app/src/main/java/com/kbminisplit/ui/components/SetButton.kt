@@ -1,5 +1,6 @@
 package com.kbminisplit.ui.components
 
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
@@ -12,14 +13,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
+import android.view.HapticFeedbackConstants
+import android.view.ViewConfiguration
+import kotlinx.coroutines.delay
+import com.kbminisplit.ui.theme.LocalHapticLevel
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -56,25 +65,51 @@ fun SetButton(
     onRevert: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val haptics = LocalHapticFeedback.current
+    val view = LocalView.current
+    val hapticLevel = LocalHapticLevel.current
     val currentStatus by rememberUpdatedState(status)
     val currentOnComplete by rememberUpdatedState(onComplete)
     val currentOnFail by rememberUpdatedState(onFail)
     val currentOnRevert by rememberUpdatedState(onRevert)
-    val targetScale = if (status == SetStatus.Pending) 1f else 1.04f
+
+    var optimisticStatus by remember(status) { mutableStateOf(status) }
+    var lastClickTime by remember { mutableLongStateOf(0L) }
+
+    // Suppress single-tap if a double-tap is likely. This satisfies the requirement
+    // that double-tap doesn't also fire the single-tap action (SetButtonTest).
+    LaunchedEffect(lastClickTime) {
+        if (lastClickTime > 0L) {
+            delay(ViewConfiguration.getDoubleTapTimeout().toLong())
+            if (lastClickTime > 0L) {
+                currentOnComplete()
+                lastClickTime = 0L
+            }
+        }
+    }
+
+    val targetScale = if (optimisticStatus == SetStatus.Pending) 1f else 1.04f
     val scale by animateFloatAsState(
         targetValue = targetScale,
-        animationSpec = spring(),
+        animationSpec = spring(stiffness = Spring.StiffnessHigh),
         label = "set_button_scale",
     )
 
     val colors = MaterialTheme.colorScheme
-    val (background, glyphColor) = when (status) {
+    val (background, glyphColor) = when (optimisticStatus) {
         SetStatus.Pending -> colors.surface to Color.Transparent
         SetStatus.Completed -> colors.onSurface to colors.surface
         SetStatus.Failed -> colors.onSurface to colors.surface
     }
-    val border = if (status == SetStatus.Pending) colors.outline else colors.onSurface
+    val border = if (optimisticStatus == SetStatus.Pending) colors.outline else colors.onSurface
+
+    fun performHaptic() {
+        val constant = when (hapticLevel) {
+            0 -> HapticFeedbackConstants.CLOCK_TICK
+            1 -> HapticFeedbackConstants.VIRTUAL_KEY
+            else -> HapticFeedbackConstants.LONG_PRESS
+        }
+        view.performHapticFeedback(constant)
+    }
 
     Surface(
         modifier = modifier
@@ -86,16 +121,23 @@ fun SetButton(
             }
             .combinedClickable(
                 onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    currentOnComplete()
-                },
-                onDoubleClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    currentOnFail()
+                    val now = System.currentTimeMillis()
+                    if (now - lastClickTime < ViewConfiguration.getDoubleTapTimeout()) {
+                        optimisticStatus = SetStatus.Failed
+                        performHaptic()
+                        currentOnFail()
+                        lastClickTime = 0L
+                    } else {
+                        optimisticStatus = SetStatus.Completed
+                        performHaptic()
+                        // currentOnComplete() is now handled by LaunchedEffect to allow cancellation by double-tap
+                        lastClickTime = now
+                    }
                 },
                 onLongClick = {
                     if (currentStatus != SetStatus.Pending) {
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        optimisticStatus = SetStatus.Pending
+                        performHaptic()
                         currentOnRevert()
                     }
                 },
@@ -106,7 +148,7 @@ fun SetButton(
         border = BorderStroke(1.5.dp, border),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            val glyph = when (status) {
+            val glyph = when (optimisticStatus) {
                 SetStatus.Pending -> ""
                 SetStatus.Completed -> "✓"
                 SetStatus.Failed -> "–"

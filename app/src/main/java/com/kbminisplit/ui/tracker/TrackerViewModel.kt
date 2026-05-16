@@ -18,11 +18,14 @@ import com.kbminisplit.domain.model.Split
 import com.kbminisplit.domain.progression.KbBumpSnooze
 import com.kbminisplit.domain.progression.movementOrder
 import com.kbminisplit.domain.progression.nextSplit
-import com.kbminisplit.domain.progression.prescription
+import com.kbminisplit.domain.progression.getPrescription
 import com.kbminisplit.domain.progression.shouldPromptKbBump
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -33,6 +36,10 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
+
+sealed interface TrackerEvent {
+    data class SessionCommitted(val date: LocalDate) : TrackerEvent
+}
 
 /**
  * Drives the Tracker tab. Owns three flows of truth:
@@ -53,6 +60,9 @@ class TrackerViewModel @Inject constructor(
     private val inProgressRepository: InProgressRepository,
     private val clock: Clock,
 ) : ViewModel() {
+
+    private val _events = MutableSharedFlow<TrackerEvent>()
+    val events = _events.asSharedFlow()
 
     private val processing = AtomicBoolean(false)
 
@@ -92,19 +102,31 @@ class TrackerViewModel @Inject constructor(
         if (!processing.compareAndSet(false, true)) return
         viewModelScope.launch {
             try {
-                val snapshot = inProgressRepository.get() ?: return@launch
+                var snapshot = inProgressRepository.get() ?: return@launch
+                // If we're here, all buttons were resolved in the UI, but the DB write might
+                // still be propagating. Retry briefly if we see Pending sets.
+                var attempts = 0
+                while (snapshot.sets.any { it.status == SetStatus.Pending } && attempts < 10) {
+                    delay(50)
+                    snapshot = inProgressRepository.get() ?: return@launch
+                    attempts++
+                }
+
                 if (snapshot.sets.any { it.status == SetStatus.Pending }) return@launch
+
+                val committedDate = snapshot.date
                 sessionRepository.addSession(
                     Session(
-                        date = snapshot.date,
+                        date = committedDate,
                         split = snapshot.split,
                         feedback = feedback,
                         kbWeightKg = snapshot.kbWeightKg,
                         sets = snapshot.sets,
                     ),
                 )
-                inProgressRepository.clear()
+                // bootstrapIfNeeded() will call start() which already clears.
                 bootstrapIfNeeded()
+                _events.emit(TrackerEvent.SessionCommitted(committedDate))
             } finally {
                 processing.set(false)
             }
@@ -234,7 +256,7 @@ class TrackerViewModel @Inject constructor(
                 )
             }
             listOf(m1, m2).forEach { exercise ->
-                val rx = prescription(history, exercise, defaults)
+                val rx = getPrescription(history, exercise, defaults)
                 add(primeFor(exercise, rx))
                 repeat(STRENGTH_WORKING_SETS) { idx ->
                     add(workingFor(exercise, rx, idx + 1))
@@ -295,8 +317,12 @@ class TrackerViewModel @Inject constructor(
             )
         }
 
-        val allResolved = snapshot.sets.isNotEmpty() &&
-            snapshot.sets.none { it.status == SetStatus.Pending }
+        val kbAllResolved = kbCircuits.all { it.status != SetStatus.Pending }
+        val strengthAllResolved = strengthRows.all { row ->
+            row.prime.status != SetStatus.Pending &&
+                row.working.all { it.status != SetStatus.Pending }
+        }
+        val allResolved = kbCircuits.isNotEmpty() && kbAllResolved && strengthAllResolved
         val noKbTouched = kbCircuits.all { it.status == SetStatus.Pending }
         val kbBump = if (
             noKbTouched &&
@@ -343,8 +369,6 @@ class TrackerViewModel @Inject constructor(
 private fun kbRepsLabel(slug: String): String = when (slug) {
     ExerciseCatalog.Swings.slug -> "32"
     ExerciseCatalog.CleanAndPress.slug -> "16/side"
-    ExerciseCatalog.Lunge.slug -> "8/side"
     ExerciseCatalog.GobletSquat.slug -> "8"
-    ExerciseCatalog.PushUp.slug -> "4"
     else -> ""
 }

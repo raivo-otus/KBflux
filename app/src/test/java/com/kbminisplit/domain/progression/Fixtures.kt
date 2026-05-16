@@ -80,7 +80,8 @@ internal val DEFAULT_ONBOARDING = OnboardingDefaults(
         ExerciseCatalog.Bench.slug to 60.0,
         ExerciseCatalog.Ohp.slug to 35.0,
         ExerciseCatalog.HighBarSquat.slug to 70.0,
-        ExerciseCatalog.Deadlift.slug to 80.0,
+        ExerciseCatalog.RomanianDeadlift.slug to 80.0,
     ),
     startingTargetReps = 8,
+    standardMaxReps = 12,
 )
