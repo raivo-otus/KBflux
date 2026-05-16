@@ -44,8 +44,10 @@ fun shouldPromptKbBump(
 
     // Standard prompt: first session of the month, provided the prior month
     // had at least one session.
-    val sessionsThisMonth = history.count { YearMonth.from(it.date) == thisMonth }
-    if (sessionsThisMonth > 0) return false
+    val hasSessionThisMonth = history.asReversed().asSequence()
+        .takeWhile { YearMonth.from(it.date) == thisMonth }
+        .any()
+    if (hasSessionThisMonth) return false
 
     val prevMonth = thisMonth.minusMonths(1)
     return history.any { YearMonth.from(it.date) == prevMonth }

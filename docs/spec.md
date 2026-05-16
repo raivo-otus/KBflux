@@ -24,15 +24,13 @@ The commute to the gym. **Not tracked in the app.**
 
 ### 2.2 KB Flow (every session)
 
-A circuit of five kettlebell movements, repeated three times back-to-back:
+A circuit of three kettlebell movements, repeated three times back-to-back:
 
 | Movement              | Reps         |
 | --------------------- | ------------ |
 | Swings                | 32           |
 | Clean & Press         | 16 per side  |
-| Weighted Lunge        | 8 per side   |
 | Goblet Squat          | 8            |
-| Push-up (bodyweight)  | 4            |
 
 One kettlebell weight is used for the whole flow. (See §9.3 for KB progression.)
 
@@ -49,11 +47,11 @@ Two compound movements per day. Each movement is **4 sets**:
 - **3 working sets** — at the target weight and target reps. Tracked for progression.
 - Alternate movement order each cycle
 
-| Day | Movement 1                                | Movement 2     |
-| --- | ----------------------------------------- | -------------- |
-| A   | Lat Pulldown                              | Barbell Row    |
-| B   | Bench Press                               | Overhead Press |
-| C   | High-Bar Squat                            | Deadlift       |
+| Day | Movement 1                                | Movement 2              |
+| --- | ----------------------------------------- | ----------------------- |
+| A   | Lat Pulldown                              | Barbell Row             |
+| B   | Bench Press                               | Overhead Press          |
+| C   | High-Bar Squat                            | Romanian Deadlift (RDL) |
 
 ### 2.4 Cadence
 
@@ -67,7 +65,7 @@ Three bottom-nav tabs:
 2. **Log** — calendar grid of past sessions, colored by feedback
 3. **Progression** — weight-over-time charts per movement
 
-No other screens except a one-time **Onboarding** flow on first launch.
+Additionally, a **Help/Info** overlay is accessible via the top app bar icon, explaining the app philosophy and programming.
 
 ## 4. Tracker
 
@@ -83,9 +81,7 @@ Single scrollable screen, top to bottom:
 │                                        │
 │  Swings           ·32                  │  ← movement labels, no per-row button
 │  Clean & Press    ·16/side             │
-│  Lunges           ·8/side              │
 │  Goblet Squats    ·8                   │
-│  Push-up          ·4                   │
 │                                        │
 │   Circuit 1   Circuit 2   Circuit 3    │  ← three buttons total, one per lap
 │       ●           ●           ●        │
@@ -180,7 +176,7 @@ A vertically scrolling list of charts, one per tracked movement.
 One chart per:
 
 - Kettlebell (single chart for the KB flow weight)
-- Each strength movement on the canonical list (Pulldown, Row, Bench, OHP, Squat, Deadlift)
+- Each strength movement on the canonical list (Pulldown, Row, Bench, OHP, Squat, Romanian Deadlift (RDL))
 
 ### 6.2 No interactivity beyond scrolling and pinch-to-zoom-time
 
@@ -190,7 +186,7 @@ A short flow, one screen per question, swipe-forward style:
 
 1. "Your kettlebell weight (kg)?" — single numeric entry.
 2. "Starting working weights" — six numeric entries (one per strength movement), with sensible placeholder defaults.
-3. "Starting target reps" — single value (default **8**), applied to all strength movements.
+3. "Progression and reps" — two values: starting target reps (default **8**) and preferred max reps (default **12**).
 
 On completion the persisted "initial state" is the row in `user_settings`
 plus the six `starting_weight` rows; together they form the
@@ -210,9 +206,9 @@ Using Room (SQLite). Tables:
 | `display_name`    | TEXT    |                                                    |
 | `category`        | TEXT    | `KB` / `A` / `B` / `C`                             |
 | `is_per_side`     | BOOL    | for KB display formatting                          |
-| `weight_step_kg`  | REAL    | default 2.5; KB is 2.0; Deadlift is 5.0            |
-| `min_reps`        | INTEGER | default 8; Deadlift is 4                           |
-| `max_reps`        | INTEGER | default 16; Deadlift is 8                          |
+| `weight_step_kg`  | REAL    | default 2.5; KB is 2.0                             |
+| `min_reps`        | INTEGER | default 8                                          |
+| `max_reps`        | INTEGER | default 16                                         |
 
 Seeded at install time and re-checked on every DB open (`INSERT OR IGNORE`)
 so catalog rows added in later releases backfill into existing installs.
@@ -233,6 +229,7 @@ references but never appear in `set_entry`.
 | `onboarded_at`                  | INTEGER | epoch millis; null until onboarding completes    |
 | `kb_weight_kg`                  | REAL    | current KB weight — initial value captured at onboarding, mutated by the KB-bump prompt (§9.3); each session snapshots this at commit time |
 | `starting_target_reps`          | INTEGER | starting target reps (default 8) at onboarding   |
+| `standard_max_reps`            | INTEGER | preferred max reps for standard lifts (default 12)|
 | `kb_bump_snoozed_at_month`      | TEXT    | ISO `YYYY-MM`; set when user taps "Not yet"      |
 | `kb_bump_snooze_session_count`  | INTEGER | session count at snooze; clears after 2 sessions |
 
@@ -328,6 +325,8 @@ Look at the most recent session in which this movement appeared.
 
 Let `W` = weight used, `R` = target reps used.
 
+Let `max_reps` = user-configured preferred max for the lift.
+
 Let `all_working_completed` = every working set (3 of them) for this movement in that session has `status = completed` (none failed).
 
 Then for today:
@@ -354,7 +353,17 @@ No automatic bumps without confirmation.
 
 The Tracker header shows the **target** weight and reps that the rules above produced. The user just executes.
 
-## 10. Tech Stack & Architecture
+## 11. Administrative Features
+
+"Secret" administrative menus are accessible via a **5-tap gesture** on the center title text ("KB MiniSplit") in the top app bar. The available options depend on the active tab:
+
+- **Tracker Tab**: Manual split override (Force A/B/C).
+- **Log Tab**: Factory reset (Wipe all data).
+- **Progression Tab**: 
+    - Haptic intensity adjustment (Low/Medium/High).
+    - Data Backup/Restore (JSON Export and Import).
+
+## 12. Tech Stack & Architecture
 
 - **Language:** Kotlin
 - **UI:** Jetpack Compose, Material 3 (mostly the typography & shapes; the color scheme is overridden with a monochrome palette)
@@ -369,7 +378,7 @@ The Tracker header shows the **target** weight and reps that the rules above pro
   - Unit: JUnit + Turbine for Flows. Progression-rules engine gets exhaustive coverage.
   - Instrumented: Compose UI tests on a couple of critical flows (set tap → state, completion → feedback dialog).
 
-### 10.1 Architecture
+### 12.1 Architecture
 
 MVVM with a clean separation:
 
@@ -381,7 +390,7 @@ data/       Room DAOs, repositories, mappers
 
 The progression engine is a **pure function** of `(history, today's date, settings) → today's prescription`. Everything else flows from there.
 
-## 11. Project Structure
+## 13. Project Structure
 
 ```
 KBminisplit/
@@ -420,7 +429,7 @@ KBminisplit/
         └── androidTest/                     (Compose UI tests)
 ```
 
-## 12. Out of Scope (v1)
+## 14. Out of Scope (v1)
 
 - Cloud sync, account, multi-device
 - Plate calculator
@@ -428,12 +437,11 @@ KBminisplit/
 - Localization (English-only, kg-only)
 - Unit conversion to lb
 - Workout reminders / notifications
-- Export / backup
 - Analytics or telemetry
 - Watch app, widget, complications
 - Sharing sessions
 
-## 13. Open Questions
+## 15. Open Questions
 
 These are decisions to revisit before locking, or after a first build is in hand:
 

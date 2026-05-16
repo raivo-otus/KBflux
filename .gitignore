@@ -41,6 +41,8 @@ captures/
 *.ipr
 *.iws
 .idea/
+.artifacts/
+.claude/
 
 # --- Kotlin ---
 .kotlin/
@@ -51,4 +53,4 @@ Thumbs.db
 *.log
 
 # Android Studio exported test reports
-Test Results*.html
+*.html

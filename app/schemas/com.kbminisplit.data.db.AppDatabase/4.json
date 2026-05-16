@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 3,
-    "identityHash": "981faf7fb8194a3e419baef96c4d4ad6",
+    "version": 4,
+    "identityHash": "7f0fa9717fd7cf11cdd647a5137149c6",
     "entities": [
       {
         "tableName": "exercise",
@@ -62,7 +62,7 @@
       },
       {
         "tableName": "user_settings",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `onboardedAt` INTEGER, `kbWeightKg` REAL, `startingTargetReps` INTEGER, `standardMaxReps` INTEGER, `deadliftMaxReps` INTEGER, `kbBumpSnoozedAtMonth` TEXT, `kbBumpSnoozeSessionCount` INTEGER, `isDarkMode` INTEGER, `hapticLevel` INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `onboardedAt` INTEGER, `kbWeightKg` REAL, `startingTargetReps` INTEGER, `standardMaxReps` INTEGER, `kbBumpSnoozedAtMonth` TEXT, `kbBumpSnoozeSessionCount` INTEGER, `isDarkMode` INTEGER, `hapticLevel` INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -88,11 +88,6 @@
           {
             "fieldPath": "standardMaxReps",
             "columnName": "standardMaxReps",
-            "affinity": "INTEGER"
-          },
-          {
-            "fieldPath": "deadliftMaxReps",
-            "columnName": "deadliftMaxReps",
             "affinity": "INTEGER"
           },
           {
@@ -442,7 +437,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '981faf7fb8194a3e419baef96c4d4ad6')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7f0fa9717fd7cf11cdd647a5137149c6')"
     ]
   }
 }

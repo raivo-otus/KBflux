@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.kotlinx.serialization)
 }
 
 android {
@@ -13,8 +14,8 @@ android {
         applicationId = "com.kbminisplit"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = project.property("app.version.code").toString().toInt()
+        versionName = project.property("app.version.name").toString()
 
         testInstrumentationRunner = "com.kbminisplit.HiltTestRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -37,6 +38,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -82,6 +84,9 @@ dependencies {
     // Navigation
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.hilt.navigation.compose)
+
+    // Serialization
+    implementation(libs.kotlinx.serialization.json)
 
     // Hilt
     implementation(libs.hilt.android)

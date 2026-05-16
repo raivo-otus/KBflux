@@ -12,10 +12,10 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 abstract class InProgressDao {
 
-    @Query("SELECT * FROM in_progress_session WHERE id = 0")
+    @Query("SELECT * FROM in_progress_session WHERE id = ${InProgressSessionEntity.SINGLETON_ID}")
     abstract fun observeSession(): Flow<InProgressSessionEntity?>
 
-    @Query("SELECT * FROM in_progress_session WHERE id = 0")
+    @Query("SELECT * FROM in_progress_session WHERE id = ${InProgressSessionEntity.SINGLETON_ID}")
     abstract suspend fun getSession(): InProgressSessionEntity?
 
     @Query("SELECT * FROM in_progress_set ORDER BY exerciseSlug, isPriming DESC, setIndex ASC")

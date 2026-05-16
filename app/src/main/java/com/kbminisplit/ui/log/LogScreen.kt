@@ -1,5 +1,8 @@
 package com.kbminisplit.ui.log
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.EaseOutBack
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,17 +34,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import android.view.HapticFeedbackConstants
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -48,8 +57,11 @@ import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.SetStatus
 import com.kbminisplit.domain.model.Split
 import com.kbminisplit.ui.theme.FeedbackColors
+import com.kbminisplit.ui.theme.LocalHapticLevel
+import com.kbminisplit.ui.util.formatKg
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 
 private val DETAIL_DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy")
 private val CELL_SHAPE = RoundedCornerShape(4.dp)
@@ -61,6 +73,7 @@ private val MONTH_LABEL_WIDTH = 56.dp
 fun LogScreen(viewModel: LogViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val selected by viewModel.selected.collectAsStateWithLifecycle()
+    val justCommittedDate by viewModel.justCommittedDate.collectAsStateWithLifecycle()
 
     Scaffold { padding ->
         Box(
@@ -73,7 +86,12 @@ fun LogScreen(viewModel: LogViewModel = hiltViewModel()) {
                 is LogUiState.Ready -> if (s.rows.isEmpty()) {
                     EmptyState()
                 } else {
-                    WeekList(state = s, onCellTap = viewModel::onCellTap)
+                    WeekList(
+                        state = s,
+                        onCellTap = viewModel::onCellTap,
+                        justCommittedDate = justCommittedDate,
+                        onAnimationComplete = viewModel::clearJustCommitted,
+                    )
                 }
             }
         }
@@ -113,7 +131,12 @@ private fun EmptyState() {
 }
 
 @Composable
-private fun WeekList(state: LogUiState.Ready, onCellTap: (LocalDate) -> Unit) {
+private fun WeekList(
+    state: LogUiState.Ready,
+    onCellTap: (LocalDate) -> Unit,
+    justCommittedDate: LocalDate?,
+    onAnimationComplete: () -> Unit,
+) {
     val listState = rememberLazyListState()
     // Spec §5.1: auto-scroll to today on first open. Once the user has scrolled
     // we leave their position alone, so a session-commit emit doesn't jerk the
@@ -123,6 +146,12 @@ private fun WeekList(state: LogUiState.Ready, onCellTap: (LocalDate) -> Unit) {
         if (!hasScrolledToToday && state.todayRowIndex in state.rows.indices) {
             listState.scrollToItem(state.todayRowIndex)
             hasScrolledToToday = true
+        }
+    }
+    // If we just committed a session, force scroll to it so the animation is visible.
+    LaunchedEffect(justCommittedDate) {
+        if (justCommittedDate != null && state.todayRowIndex in state.rows.indices) {
+            listState.animateScrollToItem(state.todayRowIndex)
         }
     }
     LazyColumn(
@@ -135,7 +164,12 @@ private fun WeekList(state: LogUiState.Ready, onCellTap: (LocalDate) -> Unit) {
     ) {
         items(items = state.rows, key = LogRow::key) { row ->
             when (row) {
-                is LogRow.Week -> WeekRow(row = row, onCellTap = onCellTap)
+                is LogRow.Week -> WeekRow(
+                    row = row,
+                    onCellTap = onCellTap,
+                    justCommittedDate = justCommittedDate,
+                    onAnimationComplete = onAnimationComplete,
+                )
                 is LogRow.MonthGap -> Spacer(Modifier.height(12.dp))
             }
         }
@@ -143,7 +177,12 @@ private fun WeekList(state: LogUiState.Ready, onCellTap: (LocalDate) -> Unit) {
 }
 
 @Composable
-private fun WeekRow(row: LogRow.Week, onCellTap: (LocalDate) -> Unit) {
+private fun WeekRow(
+    row: LogRow.Week,
+    onCellTap: (LocalDate) -> Unit,
+    justCommittedDate: LocalDate?,
+    onAnimationComplete: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -165,16 +204,53 @@ private fun WeekRow(row: LogRow.Week, onCellTap: (LocalDate) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             row.days.forEach { day ->
-                DayCellView(day = day, onTap = onCellTap)
+                DayCellView(
+                    day = day,
+                    onTap = onCellTap,
+                    shouldAnimate = day.date == justCommittedDate,
+                    onAnimationComplete = onAnimationComplete,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun DayCellView(day: DayCell, onTap: (LocalDate) -> Unit) {
+private fun DayCellView(
+    day: DayCell,
+    onTap: (LocalDate) -> Unit,
+    shouldAnimate: Boolean,
+    onAnimationComplete: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     val isOutside = day.state is DayCellState.Outside
+    val view = LocalView.current
+    val hapticLevel = LocalHapticLevel.current
+    val density = LocalDensity.current
+    val offsetY = remember { Animatable(0f) }
+
+    LaunchedEffect(shouldAnimate) {
+        if (shouldAnimate) {
+            // Drop from above: 120dp fall
+            val startOffset = with(density) { -120.dp.toPx() }
+            offsetY.snapTo(startOffset)
+            offsetY.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 300,
+                    easing = EaseOutBack,
+                ),
+            )
+            val constant = when (hapticLevel) {
+                0 -> HapticFeedbackConstants.CLOCK_TICK
+                1 -> HapticFeedbackConstants.VIRTUAL_KEY
+                else -> HapticFeedbackConstants.LONG_PRESS
+            }
+            view.performHapticFeedback(constant)
+            onAnimationComplete()
+        }
+    }
+
     val borderWidth = if (day.isToday && !isOutside) 2.dp else 1.dp
     val borderColor = if (day.isToday && !isOutside) colors.onSurface else colors.outline
     val fillColor: Color = when (val s = day.state) {
@@ -190,6 +266,7 @@ private fun DayCellView(day: DayCell, onTap: (LocalDate) -> Unit) {
 
     val cellModifier = Modifier
         .size(CELL_SIZE)
+        .offset { IntOffset(0, offsetY.value.roundToInt()) }
         .then(
             if (isOutside) Modifier
             else Modifier
@@ -312,9 +389,3 @@ private val Split.label: String
         Split.B -> "Push"
         Split.C -> "Legs"
     }
-
-private fun formatKg(value: Double): String {
-    val rounded = (value * 10).toLong() / 10.0
-    return if (rounded == rounded.toLong().toDouble()) rounded.toLong().toString()
-    else rounded.toString()
-}

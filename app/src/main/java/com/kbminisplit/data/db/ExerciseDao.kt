@@ -20,4 +20,7 @@ interface ExerciseDao {
 
     @Upsert
     suspend fun insertAll(exercises: List<ExerciseEntity>)
+
+    @Query("DELETE FROM exercise")
+    suspend fun clear()
 }
