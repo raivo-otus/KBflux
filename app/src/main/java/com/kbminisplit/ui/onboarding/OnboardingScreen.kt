@@ -3,7 +3,6 @@ package com.kbminisplit.ui.onboarding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -69,7 +68,7 @@ fun OnboardingScreen(
                     .weight(1f)
                     .fillMaxWidth(),
                 userScrollEnabled = false,
-                contentPadding = PaddingValues(horizontal = 24.dp),
+                pageSpacing = 16.dp,
             ) { pageIndex ->
                 when (OnboardingStep.entries[pageIndex]) {
                     OnboardingStep.Kb -> KbWeightStep(
@@ -83,6 +82,8 @@ fun OnboardingScreen(
                     OnboardingStep.TargetReps -> TargetRepsStep(
                         value = state.targetRepsInput,
                         onValueChange = viewModel::onTargetRepsChanged,
+                        standardMax = state.standardMaxRepsInput,
+                        onStandardMaxChange = viewModel::onStandardMaxRepsChanged,
                     )
                 }
             }
@@ -107,7 +108,7 @@ private fun StepShell(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(vertical = 32.dp),
+            .padding(horizontal = 24.dp, vertical = 32.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Text(text = title, style = MaterialTheme.typography.headlineSmall)
@@ -160,17 +161,30 @@ private fun StrengthWeightsStep(
 }
 
 @Composable
-private fun TargetRepsStep(value: String, onValueChange: (String) -> Unit) {
+private fun TargetRepsStep(
+    value: String,
+    onValueChange: (String) -> Unit,
+    standardMax: String,
+    onStandardMaxChange: (String) -> Unit,
+) {
     StepShell(
-        title = "Starting target reps",
-        subtitle = "We'll add one rep each successful session, up to 16, then bump the weight.",
+        title = "Progression and reps",
+        subtitle = "We'll add one rep each successful session until you hit your preferred max, then bump the weight.",
     ) {
         NumberField(
             value = value,
             onValueChange = onValueChange,
-            label = "Target reps",
+            label = "Starting target reps",
             decimal = false,
             tag = "field_target_reps",
+        )
+
+        NumberField(
+            value = standardMax,
+            onValueChange = onStandardMaxChange,
+            label = "Preferred max reps (e.g. 12)",
+            decimal = false,
+            tag = "field_standard_max",
         )
     }
 }

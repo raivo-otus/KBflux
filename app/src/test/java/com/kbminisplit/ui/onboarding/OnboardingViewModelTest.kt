@@ -147,12 +147,12 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `target reps must be in 1 to 16`() {
+    fun `target reps must be in 1 to 20`() {
         val vm = newViewModel()
         vm.onTargetRepsChanged("0")
         assertThat(vm.state.value.repsStepValid).isFalse()
 
-        vm.onTargetRepsChanged("17")
+        vm.onTargetRepsChanged("21")
         assertThat(vm.state.value.repsStepValid).isFalse()
 
         vm.onTargetRepsChanged("8")
@@ -166,6 +166,7 @@ class OnboardingViewModelTest {
             vm.onKbWeightChanged("18")
             vm.onStrengthWeightChanged(ExerciseCatalog.Bench.slug, "55")
             vm.onTargetRepsChanged("9")
+            vm.onStandardMaxRepsChanged("10")
 
             val captured = slot<OnboardingDefaults>()
             coEvery { settingsRepository.saveOnboarding(capture(captured)) } returns Unit
@@ -176,10 +177,11 @@ class OnboardingViewModelTest {
             coVerify(exactly = 1) { settingsRepository.saveOnboarding(any()) }
             assertThat(captured.captured.kbWeightKg).isEqualTo(18.0)
             assertThat(captured.captured.startingTargetReps).isEqualTo(9)
+            assertThat(captured.captured.standardMaxReps).isEqualTo(10)
             assertThat(captured.captured.startingWeightsBySlug[ExerciseCatalog.Bench.slug])
                 .isEqualTo(55.0)
             // The other strength movements still carry the prefilled defaults.
-            assertThat(captured.captured.startingWeightsBySlug[ExerciseCatalog.Deadlift.slug])
+            assertThat(captured.captured.startingWeightsBySlug[ExerciseCatalog.RomanianDeadlift.slug])
                 .isEqualTo(60.0)
 
             assertThat(vm.state.value.isComplete).isTrue()

@@ -8,7 +8,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.KBMiniSplit">
+        android:theme="@style/Theme.KBMiniSplit"
+        android:enableOnBackInvokedCallback="true">
 
         <activity
             android:name=".MainActivity"

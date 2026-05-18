@@ -33,6 +33,10 @@ class OnboardingViewModel @Inject constructor(
         _state.update { it.copy(targetRepsInput = value) }
     }
 
+    fun onStandardMaxRepsChanged(value: String) {
+        _state.update { it.copy(standardMaxRepsInput = value) }
+    }
+
     fun goToStep(step: OnboardingStep) {
         _state.update { it.copy(step = step) }
     }

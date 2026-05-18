@@ -3,6 +3,8 @@ package com.kbminisplit.data.db
 import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.kbminisplit.data.entity.ExerciseEntity
 import com.kbminisplit.data.entity.InProgressSessionEntity
 import com.kbminisplit.data.entity.InProgressSetEntity
@@ -45,6 +47,38 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val DB_NAME = "kbminisplit.db"
-        const val DB_VERSION = 3
+        const val DB_VERSION = 4
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Update slug in set_entry
+                db.execSQL("UPDATE set_entry SET exerciseSlug = 'romanian_deadlift' WHERE exerciseSlug = 'deadlift'")
+                // 2. Update slug in starting_weight
+                db.execSQL("UPDATE starting_weight SET exerciseSlug = 'romanian_deadlift' WHERE exerciseSlug = 'deadlift'")
+                // 3. Update slug in in_progress_set
+                db.execSQL("UPDATE in_progress_set SET exerciseSlug = 'romanian_deadlift' WHERE exerciseSlug = 'deadlift'")
+
+                // 4. Drop deadliftMaxReps from user_settings
+                db.execSQL("""
+                    CREATE TABLE user_settings_new (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        onboardedAt INTEGER,
+                        kbWeightKg REAL,
+                        startingTargetReps INTEGER,
+                        standardMaxReps INTEGER,
+                        kbBumpSnoozedAtMonth TEXT,
+                        kbBumpSnoozeSessionCount INTEGER,
+                        isDarkMode INTEGER,
+                        hapticLevel INTEGER NOT NULL DEFAULT 1
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    INSERT INTO user_settings_new (id, onboardedAt, kbWeightKg, startingTargetReps, standardMaxReps, kbBumpSnoozedAtMonth, kbBumpSnoozeSessionCount, isDarkMode, hapticLevel)
+                    SELECT id, onboardedAt, kbWeightKg, startingTargetReps, standardMaxReps, kbBumpSnoozedAtMonth, kbBumpSnoozeSessionCount, isDarkMode, hapticLevel FROM user_settings
+                """.trimIndent())
+                db.execSQL("DROP TABLE user_settings")
+                db.execSQL("ALTER TABLE user_settings_new RENAME TO user_settings")
+            }
+        }
     }
 }

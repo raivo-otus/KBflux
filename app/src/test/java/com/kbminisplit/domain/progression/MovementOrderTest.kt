@@ -84,7 +84,7 @@ class MovementOrderTest {
     }
 
     @Test
-    fun `C split alternates Squat Deadlift`() {
+    fun `C split alternates Squat Romanian Deadlift`() {
         val history = listOf(
             strengthSession(LocalDate.of(2026, 5, 1), Split.C, m1Weight = 80.0, m1Reps = 8),
             strengthSession(LocalDate.of(2026, 5, 2), Split.C, m1Weight = 80.0, m1Reps = 8),
@@ -94,6 +94,6 @@ class MovementOrderTest {
 
         // 2 past C sessions → canonical again.
         assertThat(first).isEqualTo(ExerciseCatalog.HighBarSquat)
-        assertThat(second).isEqualTo(ExerciseCatalog.Deadlift)
+        assertThat(second).isEqualTo(ExerciseCatalog.RomanianDeadlift)
     }
 }

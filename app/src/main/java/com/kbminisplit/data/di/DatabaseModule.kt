@@ -33,6 +33,7 @@ object DatabaseModule {
     ): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, AppDatabase.DB_NAME)
             .addCallback(DatabaseSeedCallback(database = { databaseProvider.get() }))
+            .addMigrations(AppDatabase.MIGRATION_3_4)
             .build()
 
     @Provides

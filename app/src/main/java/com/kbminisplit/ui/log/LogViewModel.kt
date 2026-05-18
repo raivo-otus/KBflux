@@ -40,6 +40,17 @@ class LogViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, LogUiState.Loading)
 
+    private val _justCommittedDate = MutableStateFlow<LocalDate?>(null)
+    val justCommittedDate: StateFlow<LocalDate?> = _justCommittedDate.asStateFlow()
+
+    fun markJustCommitted(date: LocalDate) {
+        _justCommittedDate.value = date
+    }
+
+    fun clearJustCommitted() {
+        _justCommittedDate.value = null
+    }
+
     private val _selected = MutableStateFlow<SessionDetail?>(null)
     val selected: StateFlow<SessionDetail?> = _selected.asStateFlow()
 

@@ -13,11 +13,11 @@ class ExerciseCatalogTest {
     }
 
     @Test
-    fun `kb flow contains exactly the five canonical movements`() {
+    fun `kb flow contains exactly the three canonical movements`() {
         val slugs = ExerciseCatalog.kbFlowMovements.map { it.slug }
 
         assertThat(slugs).containsExactly(
-            "swings", "clean_and_press", "lunge", "goblet_squat", "push_up",
+            "swings", "clean_and_press", "goblet_squat",
         ).inOrder()
     }
 
@@ -28,7 +28,7 @@ class ExerciseCatalogTest {
         assertThat(ExerciseCatalog.strengthForSplit(Split.B))
             .isEqualTo(ExerciseCatalog.Bench to ExerciseCatalog.Ohp)
         assertThat(ExerciseCatalog.strengthForSplit(Split.C))
-            .isEqualTo(ExerciseCatalog.HighBarSquat to ExerciseCatalog.Deadlift)
+            .isEqualTo(ExerciseCatalog.HighBarSquat to ExerciseCatalog.RomanianDeadlift)
     }
 
     @Test
@@ -44,11 +44,10 @@ class ExerciseCatalogTest {
     }
 
     @Test
-    fun `KB movements step in 2 kg, strength in 2 point 5 kg, push-up does not step`() {
-        ExerciseCatalog.kbFlowMovements.filter { it.slug != "push_up" }.forEach {
+    fun `KB movements step in 2 kg, strength in 2 point 5 kg`() {
+        ExerciseCatalog.kbFlowMovements.forEach {
             assertThat(it.weightStepKg).isEqualTo(2.0)
         }
-        assertThat(ExerciseCatalog.PushUp.weightStepKg).isEqualTo(0.0)
 
         ExerciseCatalog.all.filter { it.category != Category.KB }.forEach {
             assertThat(it.weightStepKg).isEqualTo(2.5)

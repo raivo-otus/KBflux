@@ -29,12 +29,14 @@ fun buildOnboardingDefaults(
     if (settings?.onboardedAt == null) return null
     val kb = settings.kbWeightKg ?: return null
     val reps = settings.startingTargetReps ?: return null
+    val standardMax = settings.standardMaxReps ?: 12
     val map = startingWeights.associate { it.exerciseSlug to it.weightKg }
     if (!map.keys.containsAll(ExpectedStartingSlugs)) return null
     return OnboardingDefaults(
         kbWeightKg = kb,
         startingWeightsBySlug = map,
         startingTargetReps = reps,
+        standardMaxReps = standardMax,
     )
 }
 

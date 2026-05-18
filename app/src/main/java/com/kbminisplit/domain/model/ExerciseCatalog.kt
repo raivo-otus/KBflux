@@ -7,9 +7,7 @@ object ExerciseCatalog {
     // sets.
     val Swings = Exercise("swings", "Swings", Category.KB, isPerSide = false, weightStepKg = 2.0)
     val CleanAndPress = Exercise("clean_and_press", "Clean & Press", Category.KB, isPerSide = true, weightStepKg = 2.0)
-    val Lunge = Exercise("lunge", "Lunge", Category.KB, isPerSide = true, weightStepKg = 2.0)
     val GobletSquat = Exercise("goblet_squat", "Goblet Squat", Category.KB, isPerSide = false, weightStepKg = 2.0)
-    val PushUp = Exercise("push_up", "Push-up", Category.KB, isPerSide = false, weightStepKg = 0.0)
 
     // Sentinel KB-flow exercise. One `set_entry` row per completed circuit
     // (3 per session) uses this slug. KB progression is single-weight (§9.3),
@@ -22,29 +20,27 @@ object ExerciseCatalog {
     val Bench = Exercise("bench", "Bench Press", Category.B, isPerSide = false, weightStepKg = 2.5)
     val Ohp = Exercise("ohp", "Overhead Press", Category.B, isPerSide = false, weightStepKg = 2.5)
     val HighBarSquat = Exercise("high_bar_squat", "High-Bar Squat", Category.C, isPerSide = false, weightStepKg = 2.5)
-    val Deadlift = Exercise(
-        slug = "deadlift",
-        displayName = "Deadlift",
+    val RomanianDeadlift = Exercise(
+        slug = "romanian_deadlift",
+        displayName = "Romanian Deadlift (RDL)",
         category = Category.C,
         isPerSide = false,
-        weightStepKg = 5.0,
-        minReps = 4,
-        maxReps = 8
+        weightStepKg = 2.5,
     )
 
     val all: List<Exercise> = listOf(
-        Swings, CleanAndPress, Lunge, GobletSquat, PushUp, KbFlow,
-        LatPulldown, BarbellRow, Bench, Ohp, HighBarSquat, Deadlift,
+        Swings, CleanAndPress, GobletSquat, KbFlow,
+        LatPulldown, BarbellRow, Bench, Ohp, HighBarSquat, RomanianDeadlift,
     )
 
     /** Reference labels for the KB section header — not used for set tracking. */
-    val kbFlowMovements: List<Exercise> = listOf(Swings, CleanAndPress, Lunge, GobletSquat, PushUp)
+    val kbFlowMovements: List<Exercise> = listOf(Swings, CleanAndPress, GobletSquat)
 
     fun bySlug(slug: String): Exercise? = all.firstOrNull { it.slug == slug }
 
     fun strengthForSplit(split: Split): Pair<Exercise, Exercise> = when (split) {
         Split.A -> LatPulldown to BarbellRow
         Split.B -> Bench to Ohp
-        Split.C -> HighBarSquat to Deadlift
+        Split.C -> HighBarSquat to RomanianDeadlift
     }
 }

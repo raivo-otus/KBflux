@@ -12,6 +12,7 @@ data class OnboardingUiState(
     val kbWeightInput: String = DefaultKbWeight,
     val strengthWeightInputs: Map<String, String> = DefaultStrengthWeights,
     val targetRepsInput: String = DefaultTargetReps,
+    val standardMaxRepsInput: String = DefaultStandardMaxReps,
     val isSaving: Boolean = false,
     val isComplete: Boolean = false,
 ) {
@@ -19,11 +20,12 @@ data class OnboardingUiState(
     fun strengthWeightKg(slug: String): Double? =
         strengthWeightInputs[slug]?.toPositiveDoubleOrNull()
     val targetReps: Int? get() = targetRepsInput.toIntOrNull()?.takeIf { it in TargetRepsRange }
+    val standardMaxReps: Int? get() = standardMaxRepsInput.toIntOrNull()?.takeIf { it in TargetRepsRange }
 
     val kbStepValid: Boolean get() = kbWeightKg != null
     val strengthStepValid: Boolean
         get() = StrengthExercises.all { strengthWeightKg(it.slug) != null }
-    val repsStepValid: Boolean get() = targetReps != null
+    val repsStepValid: Boolean get() = targetReps != null && standardMaxReps != null
 
     val canSubmit: Boolean
         get() = kbStepValid && strengthStepValid && repsStepValid && !isSaving
@@ -31,11 +33,13 @@ data class OnboardingUiState(
     fun toDefaults(): OnboardingDefaults? {
         val kb = kbWeightKg ?: return null
         val reps = targetReps ?: return null
+        val sMax = standardMaxReps ?: return null
         val pairs = StrengthExercises.map { it.slug to (strengthWeightKg(it.slug) ?: return null) }
         return OnboardingDefaults(
             kbWeightKg = kb,
             startingWeightsBySlug = pairs.toMap(),
             startingTargetReps = reps,
+            standardMaxReps = sMax,
         )
     }
 
@@ -43,10 +47,11 @@ data class OnboardingUiState(
         val StrengthExercises: List<Exercise> =
             ExerciseCatalog.all.filter { it.category != Category.KB }
 
-        val TargetRepsRange = 1..16
+        val TargetRepsRange = 1..20
 
         const val DefaultKbWeight = "16"
         const val DefaultTargetReps = "8"
+        const val DefaultStandardMaxReps = "12"
 
         val DefaultStrengthWeights: Map<String, String> = mapOf(
             ExerciseCatalog.LatPulldown.slug to "35",
@@ -54,7 +59,7 @@ data class OnboardingUiState(
             ExerciseCatalog.Bench.slug to "40",
             ExerciseCatalog.Ohp.slug to "20",
             ExerciseCatalog.HighBarSquat.slug to "50",
-            ExerciseCatalog.Deadlift.slug to "60",
+            ExerciseCatalog.RomanianDeadlift.slug to "60",
         )
     }
 }

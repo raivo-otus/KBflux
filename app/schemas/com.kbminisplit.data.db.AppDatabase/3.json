@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 3,
-    "identityHash": "2ae0b352ab583535cc7ff583136e0e2b",
+    "identityHash": "981faf7fb8194a3e419baef96c4d4ad6",
     "entities": [
       {
         "tableName": "exercise",
@@ -62,7 +62,7 @@
       },
       {
         "tableName": "user_settings",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `onboardedAt` INTEGER, `kbWeightKg` REAL, `startingTargetReps` INTEGER, `kbBumpSnoozedAtMonth` TEXT, `kbBumpSnoozeSessionCount` INTEGER, `isDarkMode` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `onboardedAt` INTEGER, `kbWeightKg` REAL, `startingTargetReps` INTEGER, `standardMaxReps` INTEGER, `deadliftMaxReps` INTEGER, `kbBumpSnoozedAtMonth` TEXT, `kbBumpSnoozeSessionCount` INTEGER, `isDarkMode` INTEGER, `hapticLevel` INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -86,6 +86,16 @@
             "affinity": "INTEGER"
           },
           {
+            "fieldPath": "standardMaxReps",
+            "columnName": "standardMaxReps",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "deadliftMaxReps",
+            "columnName": "deadliftMaxReps",
+            "affinity": "INTEGER"
+          },
+          {
             "fieldPath": "kbBumpSnoozedAtMonth",
             "columnName": "kbBumpSnoozedAtMonth",
             "affinity": "TEXT"
@@ -99,6 +109,13 @@
             "fieldPath": "isDarkMode",
             "columnName": "isDarkMode",
             "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "hapticLevel",
+            "columnName": "hapticLevel",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
           }
         ],
         "primaryKey": {
@@ -425,7 +442,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2ae0b352ab583535cc7ff583136e0e2b')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '981faf7fb8194a3e419baef96c4d4ad6')"
     ]
   }
 }

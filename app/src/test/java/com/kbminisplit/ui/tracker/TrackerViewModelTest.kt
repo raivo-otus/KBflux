@@ -51,9 +51,10 @@ class TrackerViewModelTest {
             ExerciseCatalog.Bench.slug to 60.0,
             ExerciseCatalog.Ohp.slug to 35.0,
             ExerciseCatalog.HighBarSquat.slug to 70.0,
-            ExerciseCatalog.Deadlift.slug to 80.0,
+            ExerciseCatalog.RomanianDeadlift.slug to 80.0,
         ),
         startingTargetReps = 8,
+        standardMaxReps = 12,
     )
 
     private lateinit var sessionRepository: SessionRepository
@@ -71,7 +72,10 @@ class TrackerViewModelTest {
         sessionRepository = mockk(relaxed = true) {
             every { observeAll() } returns historyFlow
             coEvery { getAll() } answers { historyFlow.value }
-            coEvery { addSession(any()) } returns 1L
+            coEvery { addSession(any()) } answers {
+                historyFlow.value = historyFlow.value + firstArg<Session>()
+                1L
+            }
         }
         settingsRepository = mockk(relaxed = true) {
             every { observeOnboardingDefaults() } returns defaultsFlow
@@ -274,7 +278,7 @@ class TrackerViewModelTest {
 
             val ready = vm.state.value as TrackerUiState.Ready
             assertThat(ready.split).isEqualTo(Split.A)
-            assertThat(ready.kbBlock.movements).hasSize(5)
+            assertThat(ready.kbBlock.movements).hasSize(3)
             assertThat(ready.kbBlock.circuits).hasSize(3)
             assertThat(ready.strength).hasSize(2)
             assertThat(ready.strength.map { it.exercise.slug })
@@ -451,7 +455,7 @@ class TrackerViewModelTest {
                 capturedSnooze = firstArg()
             }
             coEvery { settingsRepository.bumpKbWeight(any()) } answers {
-                defaultsFlow.value = defaultsFlow.value!!.copy(kbWeightKg = firstArg())
+                defaultsFlow.value = defaultsFlow.value!!.copy(kbWeightKg = firstArg()); testDispatcher.scheduler.runCurrent()
             }
 
             vm.onKbBumpAccept()

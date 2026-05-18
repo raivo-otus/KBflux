@@ -16,6 +16,9 @@ import com.kbminisplit.domain.model.Split
  */
 fun movementOrder(history: List<Session>, split: Split): Pair<Exercise, Exercise> {
     val canonical = ExerciseCatalog.strengthForSplit(split)
-    val pastOfThisSplit = history.count { it.split == split }
+    // Only need the count of past sessions of this split to decide order.
+    val pastOfThisSplit = history.asReversed().asSequence()
+        .filter { it.split == split }
+        .count()
     return if (pastOfThisSplit % 2 == 0) canonical else canonical.second to canonical.first
 }

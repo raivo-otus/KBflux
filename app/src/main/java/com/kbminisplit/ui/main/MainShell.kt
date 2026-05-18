@@ -1,5 +1,7 @@
 package com.kbminisplit.ui.main
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -14,15 +16,20 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -31,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -42,13 +50,19 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.kbminisplit.domain.model.Split
+import kotlin.math.roundToInt
 import com.kbminisplit.ui.info.InfoScreen
 import com.kbminisplit.ui.log.LogScreen
+import com.kbminisplit.ui.log.LogViewModel
 import com.kbminisplit.ui.nav.MainDestination
 import com.kbminisplit.ui.progression.ProgressionScreen
+import com.kbminisplit.ui.root.RootUiEvent
 import com.kbminisplit.ui.root.RootViewModel
+import com.kbminisplit.ui.tracker.TrackerEvent
 import com.kbminisplit.ui.tracker.TrackerScreen
 import com.kbminisplit.ui.tracker.TrackerViewModel
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 /**
  * Post-onboarding entry point.
@@ -62,14 +76,56 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val darkModeOverride by rootViewModel.isDarkMode.collectAsStateWithLifecycle(initialValue = null)
+    val context = LocalContext.current
 
     var showResetDialog by remember { mutableStateOf(false) }
     var showSplitDialog by remember { mutableStateOf(false) }
+    var showProgressionMenu by remember { mutableStateOf(false) }
     var showInfoPage by remember { mutableStateOf(false) }
     var tapCount by remember { mutableIntStateOf(0) }
     var lastTapTime by remember { mutableLongStateOf(0L) }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(rootViewModel) {
+        rootViewModel.uiEvents.collect { event ->
+            when (event) {
+                is RootUiEvent.Message -> snackbarHostState.showSnackbar(event.text)
+            }
+        }
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let { rootViewModel.exportData(context.contentResolver, it) }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { rootViewModel.importData(context.contentResolver, it) }
+    }
+
     val trackerViewModel: TrackerViewModel = hiltViewModel()
+    val logViewModel: LogViewModel = hiltViewModel()
+
+    LaunchedEffect(trackerViewModel) {
+        trackerViewModel.events.collect { event ->
+            when (event) {
+                is TrackerEvent.SessionCommitted -> {
+                    logViewModel.markJustCommitted(event.date)
+                    navController.navigate(MainDestination.Log.route) {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
+            }
+        }
+    }
 
     if (showResetDialog) {
         AlertDialog(
@@ -119,8 +175,66 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
         )
     }
 
+    if (showProgressionMenu) {
+        val currentLevel by rootViewModel.hapticLevel.collectAsStateWithLifecycle(initialValue = 1)
+        AlertDialog(
+            onDismissRequest = { showProgressionMenu = false },
+            title = { Text("Progression Settings") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Haptic Intensity",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Text(
+                        text = when (currentLevel) {
+                            0 -> "Low"
+                            1 -> "Medium"
+                            else -> "High"
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Slider(
+                        value = currentLevel.toFloat(),
+                        onValueChange = { rootViewModel.setHapticLevel(it.roundToInt()) },
+                        valueRange = 0f..2f,
+                        steps = 1
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+                    TextButton(
+                        onClick = {
+                            val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmm"))
+                            exportLauncher.launch("kbminisplit_backup_$timestamp.json")
+                            showProgressionMenu = false
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Export Data (JSON)")
+                    }
+                    TextButton(
+                        onClick = {
+                            importLauncher.launch("application/json")
+                            showProgressionMenu = false
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Import Data (JSON)")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showProgressionMenu = false }) {
+                    Text("Done")
+                }
+            }
+        )
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize().testTag("main_shell"),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
                 navigationIcon = {
@@ -150,6 +264,8 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
                                         showResetDialog = true
                                     } else if (currentDestination?.route == MainDestination.Tracker.route) {
                                         showSplitDialog = true
+                                    } else if (currentDestination?.route == MainDestination.Progression.route) {
+                                        showProgressionMenu = true
                                     }
                                     tapCount = 0
                                 }
@@ -200,8 +316,12 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
                 startDestination = MainDestination.Tracker.route,
                 modifier = Modifier.padding(innerPadding)
             ) {
-                composable(MainDestination.Tracker.route) { TrackerScreen() }
-                composable(MainDestination.Log.route) { LogScreen() }
+                composable(MainDestination.Tracker.route) {
+                    TrackerScreen(viewModel = trackerViewModel)
+                }
+                composable(MainDestination.Log.route) {
+                    LogScreen(viewModel = logViewModel)
+                }
                 composable(MainDestination.Progression.route) { ProgressionScreen() }
             }
         }
