@@ -98,6 +98,22 @@ class TrackerViewModel @Inject constructor(
     fun onSetDoubleTap(cell: SetCell) = updateSet(cell, SetStatus.Failed)
     fun onSetLongPress(cell: SetCell) = updateSet(cell, SetStatus.Pending)
 
+    fun onKbWeightChange(newKg: Double) {
+        viewModelScope.launch {
+            inProgressRepository.updateKbWeight(newKg)
+            inProgressRepository.updateExerciseWeight(ExerciseCatalog.KbFlow.slug, newKg, null)
+            settingsRepository.updateKbWeight(newKg)
+        }
+    }
+
+    fun onExerciseWeightChange(exerciseSlug: String, newKg: Double) {
+        viewModelScope.launch {
+            val minReps = ExerciseCatalog.bySlug(exerciseSlug)?.minReps
+            inProgressRepository.updateExerciseWeight(exerciseSlug, newKg, minReps)
+            settingsRepository.updateStartingWeight(exerciseSlug, newKg)
+        }
+    }
+
     fun onFeedback(feedback: Feedback) {
         if (!processing.compareAndSet(false, true)) return
         viewModelScope.launch {

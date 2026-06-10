@@ -38,6 +38,15 @@ abstract class InProgressDao {
         state: String,
     )
 
+    @Query("UPDATE in_progress_session SET kbWeightKg = :kbWeightKg WHERE id = ${InProgressSessionEntity.SINGLETON_ID}")
+    abstract suspend fun updateKbWeight(kbWeightKg: Double)
+
+    @Query("UPDATE in_progress_set SET weightKg = :weightKg, targetReps = :targetReps WHERE exerciseSlug = :exerciseSlug")
+    abstract suspend fun updateExerciseWeightAndReps(exerciseSlug: String, weightKg: Double, targetReps: Int?)
+
+    @Query("UPDATE in_progress_set SET weightKg = :weightKg WHERE exerciseSlug = :exerciseSlug")
+    abstract suspend fun updateExerciseWeight(exerciseSlug: String, weightKg: Double)
+
     @Query("DELETE FROM in_progress_set")
     abstract suspend fun deleteAllSets()
 

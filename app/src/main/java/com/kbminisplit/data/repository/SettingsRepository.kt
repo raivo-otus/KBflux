@@ -86,6 +86,15 @@ class SettingsRepository @Inject constructor(
         )
     }
 
+    suspend fun updateKbWeight(newKg: Double) {
+        val existing = settingsDao.get() ?: return
+        settingsDao.upsert(existing.copy(kbWeightKg = newKg))
+    }
+
+    suspend fun updateStartingWeight(slug: String, weightKg: Double) {
+        settingsDao.upsertStartingWeights(listOf(StartingWeightEntity(slug, weightKg)))
+    }
+
     suspend fun setDarkMode(enabled: Boolean?) {
         val existing = settingsDao.get() ?: UserSettingsEntity(
             onboardedAt = null,

@@ -97,6 +97,24 @@ class TrackerViewModelTest {
                     sets = sets,
                 )
             }
+            coEvery { updateKbWeight(any()) } answers {
+                val newKg: Double = firstArg()
+                val current = inProgressFlow.value ?: return@answers
+                inProgressFlow.value = current.copy(kbWeightKg = newKg)
+            }
+            coEvery { updateExerciseWeight(any(), any(), any()) } answers {
+                val slug: String = firstArg()
+                val newKg: Double = secondArg()
+                val newReps: Int? = thirdArg()
+                val current = inProgressFlow.value ?: return@answers
+                inProgressFlow.value = current.copy(
+                    sets = current.sets.map {
+                        if (it.exerciseSlug == slug) {
+                            it.copy(weightKg = newKg, targetReps = if (it.isPriming) it.targetReps else newReps)
+                        } else it
+                    },
+                )
+            }
             coEvery { clear() } answers { inProgressFlow.value = null }
             coEvery { updateSetState(any(), any(), any(), any()) } answers {
                 val slug: String = firstArg()
@@ -503,6 +521,47 @@ class TrackerViewModelTest {
             advanceUntilIdle()
 
             assertThat(inProgressFlow.value!!.split).isEqualTo(Split.C)
+        }
+    }
+
+    // ---- Manual weight overrides ----
+
+    @Test
+    fun `onExerciseWeightChange updates both in-progress and persisted settings and resets reps`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            val slug = ExerciseCatalog.LatPulldown.slug
+            val minReps = ExerciseCatalog.LatPulldown.minReps
+
+            vm.onExerciseWeightChange(slug, 55.0)
+            advanceUntilIdle()
+
+            coVerify { inProgressRepository.updateExerciseWeight(slug, 55.0, minReps) }
+            coVerify { settingsRepository.updateStartingWeight(slug, 55.0) }
+
+            val ready = vm.state.value as TrackerUiState.Ready
+            val pulldown = ready.strength.first { it.exercise.slug == slug }
+            assertThat(pulldown.weightKg).isEqualTo(55.0)
+            assertThat(pulldown.targetReps).isEqualTo(minReps)
+        }
+    }
+
+    @Test
+    fun `onKbWeightChange updates both in-progress and persisted settings and updates UI`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            vm.onKbWeightChange(20.0)
+            advanceUntilIdle()
+
+            coVerify { inProgressRepository.updateKbWeight(20.0) }
+            coVerify { inProgressRepository.updateExerciseWeight(ExerciseCatalog.KbFlow.slug, 20.0, null) }
+            coVerify { settingsRepository.updateKbWeight(20.0) }
+
+            val ready = vm.state.value as TrackerUiState.Ready
+            assertThat(ready.kbWeightKg).isEqualTo(20.0)
         }
     }
 

@@ -1,5 +1,6 @@
 package com.kbminisplit.ui.tracker
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,27 +11,40 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.composed
+import com.kbminisplit.domain.model.Exercise
 import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.Split
 import com.kbminisplit.ui.components.FeedbackDot
@@ -43,6 +57,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var editingWeight by remember { mutableStateOf<WeightEditTarget?>(null) }
 
     Scaffold { padding ->
         Box(
@@ -60,10 +75,34 @@ fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
                     onFeedback = viewModel::onFeedback,
                     onBumpAccept = viewModel::onKbBumpAccept,
                     onBumpSnooze = viewModel::onKbBumpSnooze,
-                )
+                ) { editingWeight = it }
             }
         }
     }
+
+    editingWeight?.let { target ->
+        WeightEditDialog(
+            title = when (target) {
+                is WeightEditTarget.Kb -> "Edit KB Flow weight"
+                is WeightEditTarget.Strength -> "Edit ${target.exercise.displayName} weight"
+            },
+            initialValue = target.weightKg,
+            onConfirm = { newWeight ->
+                when (target) {
+                    is WeightEditTarget.Kb -> viewModel.onKbWeightChange(newWeight)
+                    is WeightEditTarget.Strength -> viewModel.onExerciseWeightChange(target.exercise.slug, newWeight)
+                }
+                editingWeight = null
+            },
+            onDismiss = { editingWeight = null },
+        )
+    }
+}
+
+private sealed interface WeightEditTarget {
+    val weightKg: Double
+    data class Kb(override val weightKg: Double) : WeightEditTarget
+    data class Strength(val exercise: Exercise, override val weightKg: Double) : WeightEditTarget
 }
 
 @Composable
@@ -83,6 +122,7 @@ private fun ReadyContent(
     onFeedback: (Feedback) -> Unit,
     onBumpAccept: () -> Unit,
     onBumpSnooze: () -> Unit,
+    onWeightTap: (WeightEditTarget) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -115,6 +155,7 @@ private fun ReadyContent(
             onTap = onSetTap,
             onDoubleTap = onSetDoubleTap,
             onLongPress = onSetLongPress,
+            onWeightTap = { onWeightTap(WeightEditTarget.Kb(state.kbWeightKg)) },
         )
 
         Spacer(Modifier.height(20.dp))
@@ -127,6 +168,7 @@ private fun ReadyContent(
                 onTap = onSetTap,
                 onDoubleTap = onSetDoubleTap,
                 onLongPress = onSetLongPress,
+                onWeightTap = { onWeightTap(WeightEditTarget.Strength(row.exercise, row.weightKg)) },
             )
             if (index < state.strength.lastIndex) {
                 Spacer(Modifier.height(20.dp))
@@ -234,8 +276,12 @@ private fun KbFlowSection(
     onTap: (SetCell) -> Unit,
     onDoubleTap: (SetCell) -> Unit,
     onLongPress: (SetCell) -> Unit,
+    onWeightTap: () -> Unit,
 ) {
-    SectionTitle(text = "KB Flow · ${formatKg(kbWeightKg)} kg")
+    SectionTitle(
+        text = "KB Flow · ${formatKg(kbWeightKg)} kg",
+        modifier = Modifier.tripleClickable(onClick = onWeightTap),
+    )
     Spacer(Modifier.height(12.dp))
     block.movements.forEach { label ->
         Row(
@@ -289,6 +335,7 @@ private fun StrengthSection(
     onTap: (SetCell) -> Unit,
     onDoubleTap: (SetCell) -> Unit,
     onLongPress: (SetCell) -> Unit,
+    onWeightTap: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -304,8 +351,10 @@ private fun StrengthSection(
             text = "${formatKg(row.weightKg)} kg",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.weight(1f),
             textAlign = TextAlign.Center,
+            modifier = Modifier
+                .weight(1f)
+                .tripleClickable(onClick = onWeightTap),
         )
         Text(
             text = "x ${row.targetReps}",
@@ -407,11 +456,77 @@ private fun FeedbackSheet(onFeedback: (Feedback) -> Unit) {
 }
 
 @Composable
-private fun SectionTitle(text: String) {
+private fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.SemiBold,
+        modifier = modifier,
+    )
+}
+
+/**
+ * Custom modifier to detect triple taps.
+ */
+private fun Modifier.tripleClickable(onClick: () -> Unit): Modifier = composed {
+    var lastClickTime by remember { mutableLongStateOf(0L) }
+    var clickCount by remember { mutableIntStateOf(0) }
+
+    Modifier.pointerInput(Unit) {
+        detectTapGestures {
+            val now = System.currentTimeMillis()
+            if (now - lastClickTime < 400) {
+                clickCount++
+            } else {
+                clickCount = 1
+            }
+            lastClickTime = now
+            if (clickCount >= 3) {
+                onClick()
+                clickCount = 0
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeightEditDialog(
+    title: String,
+    initialValue: Double,
+    onConfirm: (Double) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf(formatKg(initialValue)) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = title) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("Weight (kg)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val weight = text.replace(',', '.').toDoubleOrNull()
+                    if (weight != null && weight >= 0.0) {
+                        onConfirm(weight)
+                    }
+                },
+            ) {
+                Text("Confirm")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
     )
 }
 

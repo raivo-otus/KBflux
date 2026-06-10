@@ -66,5 +66,13 @@ class InProgressRepository @Inject constructor(
         inProgressDao.updateState(exerciseSlug, setIndex, isPriming, state.name)
     }
 
+    suspend fun updateKbWeight(kbWeightKg: Double) {
+        inProgressDao.updateKbWeight(kbWeightKg)
+    }
+
+    suspend fun updateExerciseWeight(exerciseSlug: String, weightKg: Double, targetReps: Int?) {
+        inProgressDao.updateExerciseWeightAndReps(exerciseSlug, weightKg, targetReps)
+    }
+
     suspend fun clear() = inProgressDao.clear()
 }
