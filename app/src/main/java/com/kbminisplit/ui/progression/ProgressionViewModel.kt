@@ -5,18 +5,19 @@ import androidx.lifecycle.viewModelScope
 import com.kbminisplit.data.repository.SessionRepository
 import com.kbminisplit.domain.model.Exercise
 import com.kbminisplit.domain.model.ExerciseCatalog
+import com.kbminisplit.domain.model.Session
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import java.time.Clock
 import java.time.LocalDate
 import javax.inject.Inject
 
 data class ProgressionDataPoint(
     val date: LocalDate,
     val weightKg: Double,
-    val targetReps: Int?,
 )
 
 data class MovementProgression(
@@ -25,6 +26,8 @@ data class MovementProgression(
 )
 
 data class ProgressionUiState(
+    val windowStart: LocalDate,
+    val windowEnd: LocalDate,
     val kbProgression: MovementProgression,
     val strengthProgression: List<MovementProgression>,
 )
@@ -32,59 +35,56 @@ data class ProgressionUiState(
 @HiltViewModel
 class ProgressionViewModel @Inject constructor(
     sessionRepository: SessionRepository,
+    private val clock: Clock,
 ) : ViewModel() {
 
     val uiState: StateFlow<ProgressionUiState> = sessionRepository.observeAll()
-        .map { sessions ->
-            // sessions are expected to be sorted by date from the DB.
-            val lastSessions = sessions.takeLast(60) // Buffer to ensure we have enough relevant points.
-
-            // KB Flow
-            val kbDataPoints = lastSessions.map { session ->
-                ProgressionDataPoint(
-                    date = session.date,
-                    weightKg = session.kbWeightKg,
-                    targetReps = null
-                )
-            }.takeLast(30)
-
-            // Strength movements
-            val strengthExercises = listOf(
-                ExerciseCatalog.LatPulldown,
-                ExerciseCatalog.BarbellRow,
-                ExerciseCatalog.Bench,
-                ExerciseCatalog.Ohp,
-                ExerciseCatalog.HighBarSquat,
-                ExerciseCatalog.RomanianDeadlift
-            )
-
-            val strengthProgression = strengthExercises.map { exercise ->
-                val dataPoints = lastSessions.mapNotNull { session ->
-                    // In our model, a strength movement in a session has 1 prime + 3 working sets.
-                    // All 3 working sets share the same target weight and reps for that session.
-                    val set = session.sets.firstOrNull { it.exerciseSlug == exercise.slug && !it.isPriming }
-                    set?.let {
-                        ProgressionDataPoint(
-                            date = session.date,
-                            weightKg = it.weightKg,
-                            targetReps = it.targetReps
-                        )
-                    }
-                }.takeLast(30)
-                MovementProgression(exercise, dataPoints)
-            }
-
-            ProgressionUiState(
-                kbProgression = MovementProgression(ExerciseCatalog.KbFlow, kbDataPoints),
-                strengthProgression = strengthProgression
-            )
-        }
+        .map { sessions -> buildState(sessions, today = LocalDate.now(clock)) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = ProgressionUiState(
-                kbProgression = MovementProgression(ExerciseCatalog.KbFlow, emptyList()),
-                strengthProgression = emptyList()
-            )
+            initialValue = buildState(sessions = emptyList(), today = LocalDate.now(clock)),
         )
+
+    private fun buildState(sessions: List<Session>, today: LocalDate): ProgressionUiState {
+        val windowStart = today.minusWeeks(WINDOW_WEEKS)
+        // Sessions arrive date-sorted from the DB; keep only those inside the window.
+        val windowed = sessions.filter { !it.date.isBefore(windowStart) }
+
+        val kbDataPoints = windowed.map { session ->
+            ProgressionDataPoint(date = session.date, weightKg = session.kbWeightKg)
+        }
+
+        val strengthProgression = strengthExercises.map { exercise ->
+            val dataPoints = windowed.mapNotNull { session ->
+                // All working sets of a movement share one target weight within a
+                // session, so the first working set carries the session's weight.
+                session.sets
+                    .firstOrNull { it.exerciseSlug == exercise.slug && !it.isPriming }
+                    ?.let { ProgressionDataPoint(date = session.date, weightKg = it.weightKg) }
+            }
+            MovementProgression(exercise, dataPoints)
+        }
+
+        return ProgressionUiState(
+            windowStart = windowStart,
+            windowEnd = today,
+            kbProgression = MovementProgression(ExerciseCatalog.KbFlow, kbDataPoints),
+            strengthProgression = strengthProgression,
+        )
+    }
+
+    private companion object {
+        /** The charts show a sliding window over the most recent 8 weeks (§6.1). */
+        const val WINDOW_WEEKS = 8L
+
+        val strengthExercises = listOf(
+            ExerciseCatalog.LatPulldown,
+            ExerciseCatalog.BarbellRow,
+            ExerciseCatalog.Bench,
+            ExerciseCatalog.Ohp,
+            ExerciseCatalog.HighBarSquat,
+            ExerciseCatalog.RomanianDeadlift,
+        )
+    }
 }

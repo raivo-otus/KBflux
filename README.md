@@ -15,7 +15,7 @@ A minimalist, high-opinion strength training tracker for a specific Kettlebell +
 - **Architecture**: MVVM with Clean Architecture principles (Domain/Data/UI split)
 - **Dependency Injection**: Hilt
 - **Database**: Room
-- **Charts**: Vico
+- **Charts**: custom Compose `Canvas` line charts
 - **Testing**: JUnit 4, Truth, Turbine, Mockk, Compose UI Test
 
 ## Build Instructions
@@ -36,7 +36,7 @@ Currently in Phase 8 (Polish & Verification). Core features are implemented:
 - Onboarding for starting weights.
 - Daily Tracker with auto-prescriptions.
 - Log tab with calendar-like view.
-- Progression tab with weight/reps charts.
+- Progression tab with 8-week weight charts.
 - Robust state restoration (app-kill safe).
 
 ## Spec

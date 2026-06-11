@@ -168,17 +168,17 @@ A vertically scrolling list of charts, one per tracked movement.
 
 ### 6.1 Charts
 
-- **X axis:** time (date of session).
-- **Y axis (left):** working weight.
-- **Secondary indicator:** target reps at that weight, e.g. faint annotation or a thin secondary line.
-- Stepped line — weight is constant across sessions until it bumps.
+- **X axis:** time — a sliding window over the most recent **8 weeks**, the same fixed scale on every chart.
+- **Y axis (left):** working weight (kg), padded outward to clean 2.5 kg multiples, with three faint gridlines (bottom/middle/top).
+- A single **solid monochrome line** with a small dot per session; the latest session gets an emphasized dot, and its weight is echoed next to the movement title.
+- Drawn with a plain Compose `Canvas` — no chart library.
 
 One chart per:
 
 - Kettlebell (single chart for the KB flow weight)
 - Each strength movement on the canonical list (Pulldown, Row, Bench, OHP, Squat, Romanian Deadlift (RDL))
 
-### 6.2 No interactivity beyond scrolling and pinch-to-zoom-time
+### 6.2 No interactivity beyond scrolling
 
 ## 7. Onboarding (first launch)
 
@@ -372,7 +372,7 @@ The Tracker header shows the **target** weight and reps that the rules above pro
 - **Persistence:** Room
 - **Reactive state:** Kotlin Flow / StateFlow
 - **DI:** Hilt (convention; manual DI also fine for an app this small — flag at first PR)
-- **Charts:** [Vico](https://patrykandpatrick.com/vico/) (Compose-native, lightweight)
+- **Charts:** hand-drawn with Compose `Canvas` (no chart dependency)
 - **Build:** Gradle Kotlin DSL, version catalogs (`libs.versions.toml`)
 - **Tests:**
   - Unit: JUnit + Turbine for Flows. Progression-rules engine gets exhaustive coverage.
