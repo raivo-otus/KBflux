@@ -101,11 +101,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
 
-    // Charts
-    implementation(libs.vico.compose)
-    implementation(libs.vico.compose.m3)
-    implementation(libs.vico.core)
-
     // Unit tests (JVM)
     testImplementation(libs.junit)
     testImplementation(libs.turbine)

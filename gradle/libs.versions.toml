@@ -17,8 +17,6 @@ coroutines = "1.9.0"
 
 kotlinxSerialization = "1.7.3"
 
-vico = "2.0.0-beta.3"
-
 junit = "4.13.2"
 turbine = "1.2.0"
 mockk = "1.13.13"
@@ -68,9 +66,6 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 
 # Charts
-vico-compose = { group = "com.patrykandpatrick.vico", name = "compose", version.ref = "vico" }
-vico-compose-m3 = { group = "com.patrykandpatrick.vico", name = "compose-m3", version.ref = "vico" }
-vico-core = { group = "com.patrykandpatrick.vico", name = "core", version.ref = "vico" }
 
 # Unit tests
 junit = { group = "junit", name = "junit", version.ref = "junit" }
