@@ -47,7 +47,7 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val DB_NAME = "kbminisplit.db"
-        const val DB_VERSION = 4
+        const val DB_VERSION = 5
 
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -78,6 +78,12 @@ abstract class AppDatabase : RoomDatabase() {
                 """.trimIndent())
                 db.execSQL("DROP TABLE user_settings")
                 db.execSQL("ALTER TABLE user_settings_new RENAME TO user_settings")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE session SET feedback = 'Green' WHERE feedback = 'Ideal session'")
             }
         }
     }

@@ -10,7 +10,7 @@ fun InProgressSetEntity.toDomain(): SetEntry = SetEntry(
     isPriming = isPriming,
     targetReps = targetReps,
     weightKg = weightKg,
-    status = SetStatus.valueOf(state),
+    status = try { SetStatus.valueOf(state) } catch (e: IllegalArgumentException) { SetStatus.Pending },
 )
 
 fun SetEntry.toInProgressEntity(): InProgressSetEntity = InProgressSetEntity(

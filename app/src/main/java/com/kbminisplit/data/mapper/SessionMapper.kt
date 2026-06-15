@@ -16,7 +16,7 @@ fun SetEntryEntity.toDomain(): SetEntry = SetEntry(
     isPriming = isPriming,
     targetReps = targetReps,
     weightKg = weightKg,
-    status = SetStatus.valueOf(status),
+    status = try { SetStatus.valueOf(status) } catch (e: IllegalArgumentException) { SetStatus.Pending },
 )
 
 fun SetEntry.toEntity(sessionId: Long): SetEntryEntity = SetEntryEntity(
@@ -31,8 +31,8 @@ fun SetEntry.toEntity(sessionId: Long): SetEntryEntity = SetEntryEntity(
 
 fun SessionEntity.toDomain(sets: List<SetEntryEntity>): Session = Session(
     date = LocalDate.parse(date),
-    split = Split.valueOf(split),
-    feedback = Feedback.valueOf(feedback),
+    split = try { Split.valueOf(split) } catch (e: IllegalArgumentException) { Split.A },
+    feedback = try { Feedback.valueOf(feedback) } catch (e: IllegalArgumentException) { Feedback.Green },
     kbWeightKg = kbWeightKg,
     sets = sets.map { it.toDomain() },
 )
