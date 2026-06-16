@@ -5,8 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.kbminisplit.data.repository.SessionRepository
 import com.kbminisplit.domain.model.ExerciseCatalog
 import com.kbminisplit.domain.model.Session
-import com.kbminisplit.domain.model.SetEntry
 import com.kbminisplit.domain.model.SetStatus
+import com.kbminisplit.ui.mapper.toKbBlock
+import com.kbminisplit.ui.mapper.toStrengthRows
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -68,14 +69,24 @@ private val CATALOG_ORDER: Map<String, Int> =
     ExerciseCatalog.all.withIndex().associate { (idx, e) -> e.slug to idx }
 
 private fun Session.toDetail(): SessionDetail {
-    val bySlug = sets.groupBy { it.exerciseSlug }
-    val kbCircuits = (bySlug[ExerciseCatalog.KbFlow.slug] ?: emptyList())
-        .sortedBy { it.setIndex }
-        .map { it.status }
-    val strengthRows = bySlug.keys
-        .filter { it != ExerciseCatalog.KbFlow.slug }
-        .sortedBy { CATALOG_ORDER[it] ?: Int.MAX_VALUE }
-        .map { slug -> bySlug.getValue(slug).toStrengthDetail(slug) }
+    val kbBlock = sets.toKbBlock()
+    val kbCircuits = kbBlock.circuits.map { it.status }
+
+    val strengthExercises = sets.filter { it.exerciseSlug != ExerciseCatalog.KbFlow.slug && !it.isPriming }
+        .mapNotNull { ExerciseCatalog.bySlug(it.exerciseSlug) }
+        .distinctBy { it.slug }
+        .sortedBy { CATALOG_ORDER[it.slug] ?: Int.MAX_VALUE }
+
+    val strengthRows = sets.toStrengthRows(strengthExercises).map { row ->
+        StrengthDetail(
+            exerciseDisplayName = row.exercise.displayName,
+            weightKg = row.weightKg,
+            targetReps = row.targetReps,
+            primeStatus = row.prime.status,
+            workingStatuses = row.working.map { it.status },
+        )
+    }
+
     return SessionDetail(
         date = date,
         split = split,
@@ -83,31 +94,5 @@ private fun Session.toDetail(): SessionDetail {
         kbWeightKg = kbWeightKg,
         kbCircuits = kbCircuits,
         strength = strengthRows,
-    )
-}
-
-private fun List<SetEntry>.toStrengthDetail(slug: String): StrengthDetail {
-    val prime = firstOrNull { it.isPriming }
-    val working = filter { !it.isPriming }.sortedBy { it.setIndex }
-    
-    // Defensive fallback: if bootstrap somehow missed sets or data is corrupt.
-    if (prime == null && working.isEmpty()) {
-        return StrengthDetail(
-            exerciseDisplayName = ExerciseCatalog.bySlug(slug)?.displayName ?: slug,
-            weightKg = 0.0,
-            targetReps = 0,
-            primeStatus = SetStatus.Pending,
-            workingStatuses = emptyList(),
-        )
-    }
-
-    val referenceWeight = (working.firstOrNull() ?: prime)?.weightKg ?: 0.0
-    val targetReps = working.firstOrNull()?.targetReps ?: 0
-    return StrengthDetail(
-        exerciseDisplayName = ExerciseCatalog.bySlug(slug)?.displayName ?: slug,
-        weightKg = referenceWeight,
-        targetReps = targetReps,
-        primeStatus = prime?.status ?: SetStatus.Pending,
-        workingStatuses = working.map { it.status },
     )
 }

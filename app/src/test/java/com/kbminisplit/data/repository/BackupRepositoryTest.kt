@@ -11,12 +11,6 @@ import com.kbminisplit.data.entity.SetEntryEntity
 import com.kbminisplit.data.entity.StartingWeightEntity
 import com.kbminisplit.data.entity.UserSettingsEntity
 import com.kbminisplit.data.model.BackupData
-import com.kbminisplit.data.model.InProgressSessionBackup
-import com.kbminisplit.data.model.InProgressSetBackup
-import com.kbminisplit.data.model.SessionBackup
-import com.kbminisplit.data.model.SetEntryBackup
-import com.kbminisplit.data.model.StartingWeightBackup
-import com.kbminisplit.data.model.UserSettingsBackup
 import com.google.common.truth.Truth.assertThat
 import io.mockk.*
 import kotlinx.coroutines.test.runTest
@@ -78,12 +72,12 @@ class BackupRepositoryTest {
     fun `restoreBackupData clears tables and inserts all data`() = runTest {
         val data = BackupData(
             version = 1,
-            sessions = listOf(SessionBackup(1, "2023-01-01", "A", "Good", 16.0, 1000L)),
-            setEntries = listOf(SetEntryBackup(1, 1, "push-up", 0, false, 10, 0.0, "COMPLETED")),
-            userSettings = UserSettingsBackup(500L, 16.0, 10, 15, null, 0, true, 1),
-            startingWeights = listOf(StartingWeightBackup("push-up", 0.0)),
-            inProgressSession = InProgressSessionBackup("2023-01-02", "B", 20.0),
-            inProgressSets = listOf(InProgressSetBackup(1, "swing", 0, true, 15, 20.0, "IN_PROGRESS"))
+            sessions = listOf(SessionEntity(id = 1, date = "2023-01-01", split = "A", feedback = "Good", kbWeightKg = 16.0, completedAt = 1000L)),
+            setEntries = listOf(SetEntryEntity(id = 1, sessionId = 1, exerciseSlug = "push-up", setIndex = 0, isPriming = false, targetReps = 10, weightKg = 0.0, status = "COMPLETED")),
+            userSettings = UserSettingsEntity(onboardedAt = 500L, kbWeightKg = 16.0, startingTargetReps = 10, standardMaxReps = 15, kbBumpSnoozedAtMonth = null, kbBumpSnoozeSessionCount = 0, isDarkMode = true, hapticLevel = 1),
+            startingWeights = listOf(StartingWeightEntity(exerciseSlug = "push-up", weightKg = 0.0)),
+            inProgressSession = InProgressSessionEntity(date = "2023-01-02", split = "B", kbWeightKg = 20.0),
+            inProgressSets = listOf(InProgressSetEntity(id = 1, exerciseSlug = "swing", setIndex = 0, isPriming = true, targetReps = 15, weightKg = 20.0, state = "IN_PROGRESS"))
         )
 
         coEvery { sessionDao.clear() } just Runs

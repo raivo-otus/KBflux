@@ -3,6 +3,7 @@ package com.kbminisplit.data.mapper
 import com.kbminisplit.data.entity.SessionEntity
 import com.kbminisplit.data.entity.SessionWithSets
 import com.kbminisplit.data.entity.SetEntryEntity
+import com.kbminisplit.data.util.toEnumOrDefault
 import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.Session
 import com.kbminisplit.domain.model.SetEntry
@@ -16,7 +17,7 @@ fun SetEntryEntity.toDomain(): SetEntry = SetEntry(
     isPriming = isPriming,
     targetReps = targetReps,
     weightKg = weightKg,
-    status = try { SetStatus.valueOf(status) } catch (e: IllegalArgumentException) { SetStatus.Pending },
+    status = status.toEnumOrDefault(SetStatus.Pending),
 )
 
 fun SetEntry.toEntity(sessionId: Long): SetEntryEntity = SetEntryEntity(
@@ -31,8 +32,8 @@ fun SetEntry.toEntity(sessionId: Long): SetEntryEntity = SetEntryEntity(
 
 fun SessionEntity.toDomain(sets: List<SetEntryEntity>): Session = Session(
     date = LocalDate.parse(date),
-    split = try { Split.valueOf(split) } catch (e: IllegalArgumentException) { Split.A },
-    feedback = try { Feedback.valueOf(feedback) } catch (e: IllegalArgumentException) { Feedback.Green },
+    split = split.toEnumOrDefault(Split.A),
+    feedback = feedback.toEnumOrDefault(Feedback.Green),
     kbWeightKg = kbWeightKg,
     sets = sets.map { it.toDomain() },
 )

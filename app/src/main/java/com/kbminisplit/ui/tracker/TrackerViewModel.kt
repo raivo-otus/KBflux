@@ -20,8 +20,9 @@ import com.kbminisplit.domain.progression.movementOrder
 import com.kbminisplit.domain.progression.nextSplit
 import com.kbminisplit.domain.progression.getPrescription
 import com.kbminisplit.domain.progression.shouldPromptKbBump
+import com.kbminisplit.ui.mapper.toKbBlock
+import com.kbminisplit.ui.mapper.toStrengthRows
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -118,16 +119,7 @@ class TrackerViewModel @Inject constructor(
         if (!processing.compareAndSet(false, true)) return
         viewModelScope.launch {
             try {
-                var snapshot = inProgressRepository.get() ?: return@launch
-                // If we're here, all buttons were resolved in the UI, but the DB write might
-                // still be propagating. Retry briefly if we see Pending sets.
-                var attempts = 0
-                while (snapshot.sets.any { it.status == SetStatus.Pending } && attempts < 10) {
-                    delay(50)
-                    snapshot = inProgressRepository.get() ?: return@launch
-                    attempts++
-                }
-
+                val snapshot = inProgressRepository.get() ?: return@launch
                 if (snapshot.sets.any { it.status == SetStatus.Pending }) return@launch
 
                 val committedDate = snapshot.date
@@ -305,41 +297,17 @@ class TrackerViewModel @Inject constructor(
         defaults: OnboardingDefaults,
         snooze: KbBumpSnooze?,
     ): TrackerUiState.Ready {
-        val setsBySlug = snapshot.sets.groupBy { it.exerciseSlug }
-
-        val kbCircuits = (setsBySlug[ExerciseCatalog.KbFlow.slug].orEmpty())
-            .sortedBy { it.setIndex }
-            .map { it.toCell() }
-        val kbBlock = KbBlock(
-            movements = ExerciseCatalog.kbFlowMovements.map {
-                KbMovementLabel(exercise = it, repsLabel = kbRepsLabel(it.slug))
-            },
-            circuits = kbCircuits,
-        )
-
         val (m1, m2) = movementOrder(history, snapshot.split)
-        val strengthRows = listOf(m1, m2).mapNotNull { exercise ->
-            val all = setsBySlug[exercise.slug].orEmpty()
-            val prime = all.firstOrNull { it.isPriming } ?: return@mapNotNull null
-            val working = all.filter { !it.isPriming }.sortedBy { it.setIndex }
-            val reference = working.firstOrNull() ?: return@mapNotNull null
-            StrengthMovementRow(
-                exercise = exercise,
-                weightKg = reference.weightKg,
-                targetReps = reference.targetReps
-                    ?: error("Strength working set missing targetReps (${exercise.slug})"),
-                prime = prime.toCell(),
-                working = working.map { it.toCell() },
-            )
-        }
+        val kbBlock = snapshot.sets.toKbBlock()
+        val strengthRows = snapshot.sets.toStrengthRows(listOf(m1, m2))
 
-        val kbAllResolved = kbCircuits.all { it.status != SetStatus.Pending }
+        val kbAllResolved = kbBlock.circuits.all { it.status != SetStatus.Pending }
         val strengthAllResolved = strengthRows.all { row ->
             row.prime.status != SetStatus.Pending &&
                 row.working.all { it.status != SetStatus.Pending }
         }
-        val allResolved = kbCircuits.isNotEmpty() && kbAllResolved && strengthAllResolved
-        val noKbTouched = kbCircuits.all { it.status == SetStatus.Pending }
+        val allResolved = kbBlock.circuits.isNotEmpty() && kbAllResolved && strengthAllResolved
+        val noKbTouched = kbBlock.circuits.all { it.status == SetStatus.Pending }
         val kbBump = if (
             noKbTouched &&
             shouldPromptKbBump(history, snapshot.date, snooze)
@@ -364,27 +332,9 @@ class TrackerViewModel @Inject constructor(
         )
     }
 
-    private fun SetEntry.toCell() = SetCell(
-        exerciseSlug = exerciseSlug,
-        setIndex = setIndex,
-        isPriming = isPriming,
-        status = status,
-    )
-
     companion object {
         const val KB_BUMP_STEP_KG = 2.0
         const val KB_ROUNDS = 3
         const val STRENGTH_WORKING_SETS = 3
     }
-}
-
-/**
- * Fixed KB rep prescriptions (spec §2.2). These are program constants, not
- * user-tracked, so they live in the UI layer rather than on `Exercise`.
- */
-private fun kbRepsLabel(slug: String): String = when (slug) {
-    ExerciseCatalog.Swings.slug -> "32"
-    ExerciseCatalog.CleanAndPress.slug -> "16/side"
-    ExerciseCatalog.GobletSquat.slug -> "8"
-    else -> ""
 }
