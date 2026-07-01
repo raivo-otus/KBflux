@@ -5,7 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.kbminisplit.data.repository.SessionRepository
 import com.kbminisplit.domain.model.Exercise
 import com.kbminisplit.domain.model.ExerciseCatalog
+import com.kbminisplit.domain.model.ExerciseMechanic
 import com.kbminisplit.domain.model.Session
+import com.kbminisplit.domain.progression.effectiveLoadKg
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -59,9 +61,19 @@ class ProgressionViewModel @Inject constructor(
             val dataPoints = windowed.mapNotNull { session ->
                 // All working sets of a movement share one target weight within a
                 // session, so the first working set carries the session's weight.
-                session.sets
+                val set = session.sets
                     .firstOrNull { it.exerciseSlug == exercise.slug && !it.isPriming }
-                    ?.let { ProgressionDataPoint(date = session.date, weightKg = it.weightKg) }
+                    ?: return@mapNotNull null
+                // Assisted movements chart effective load (bodyweight − pin) so the
+                // line rises as assistance drops. Points without a bodyweight
+                // snapshot can't be placed and are skipped.
+                val load = when (exercise.mechanic) {
+                    ExerciseMechanic.TRADITIONAL -> set.weightKg
+                    ExerciseMechanic.ASSISTED -> session.bodyweightKg
+                        ?.let { effectiveLoadKg(exercise.mechanic, set.weightKg, it) }
+                        ?: return@mapNotNull null
+                }
+                ProgressionDataPoint(date = session.date, weightKg = load)
             }
             MovementProgression(exercise, dataPoints)
         }
@@ -82,7 +94,7 @@ class ProgressionViewModel @Inject constructor(
             ExerciseCatalog.LatPulldown,
             ExerciseCatalog.BarbellRow,
             ExerciseCatalog.Bench,
-            ExerciseCatalog.Ohp,
+            ExerciseCatalog.AssistedDip,
             ExerciseCatalog.HighBarSquat,
             ExerciseCatalog.RomanianDeadlift,
         )

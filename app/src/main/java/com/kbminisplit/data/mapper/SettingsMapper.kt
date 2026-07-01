@@ -13,8 +13,14 @@ import java.time.YearMonth
 // to their own default and are never part of onboarding.
 private val StrengthCategories = setOf(Category.A, Category.B, Category.C)
 
+// Movements carrying a defaultStartingWeightKg fallback (e.g. Assisted Dips) are
+// not onboarded — they derive their first weight from that fallback — so they must
+// not be required here, or already-onboarded users would be treated as un-onboarded.
 private val ExpectedStartingSlugs: Set<String> =
-    ExerciseCatalog.all.filter { it.category in StrengthCategories }.map { it.slug }.toSet()
+    ExerciseCatalog.all
+        .filter { it.category in StrengthCategories && it.defaultStartingWeightKg == null }
+        .map { it.slug }
+        .toSet()
 
 /**
  * Compose [OnboardingDefaults] from the persisted user settings + per-movement

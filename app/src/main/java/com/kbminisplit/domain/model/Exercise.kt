@@ -14,4 +14,9 @@ data class Exercise(
      * which aren't part of onboarding). Domain-only — not persisted.
      */
     val defaultStartingWeightKg: Double? = null,
+    /**
+     * Whether the logged weight is a traditional load or machine assistance.
+     * Flips the direction of double progression. Domain-only — not persisted.
+     */
+    val mechanic: ExerciseMechanic = ExerciseMechanic.TRADITIONAL,
 )

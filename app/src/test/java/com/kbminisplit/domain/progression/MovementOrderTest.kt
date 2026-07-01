@@ -72,14 +72,14 @@ class MovementOrderTest {
     }
 
     @Test
-    fun `B split alternates Bench OHP`() {
+    fun `B split alternates Bench Assisted Dip`() {
         val history = listOf(
             strengthSession(LocalDate.of(2026, 5, 1), Split.B, m1Weight = 60.0, m1Reps = 8),
         )
 
         val (first, second) = movementOrder(history, Split.B)
 
-        assertThat(first).isEqualTo(ExerciseCatalog.Ohp)
+        assertThat(first).isEqualTo(ExerciseCatalog.AssistedDip)
         assertThat(second).isEqualTo(ExerciseCatalog.Bench)
     }
 

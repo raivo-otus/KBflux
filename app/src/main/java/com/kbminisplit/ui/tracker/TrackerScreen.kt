@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.composed
 import com.kbminisplit.domain.model.Exercise
+import com.kbminisplit.domain.model.ExerciseMechanic
 import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.Split
 import com.kbminisplit.ui.components.FeedbackDot
@@ -87,12 +88,18 @@ fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
             title = when (target) {
                 is WeightEditTarget.Kb -> "Edit KB Flow weight"
                 is WeightEditTarget.Strength -> "Edit ${target.exercise.displayName} weight"
+                is WeightEditTarget.Bodyweight -> "Weekly bodyweight"
+            },
+            fieldLabel = when (target) {
+                is WeightEditTarget.Bodyweight -> "Bodyweight (kg)"
+                else -> "Weight (kg)"
             },
             initialValue = target.weightKg,
             onConfirm = { newWeight ->
                 when (target) {
                     is WeightEditTarget.Kb -> viewModel.onKbWeightChange(newWeight)
                     is WeightEditTarget.Strength -> viewModel.onExerciseWeightChange(target.exercise.slug, newWeight)
+                    is WeightEditTarget.Bodyweight -> viewModel.onBodyweightEntered(newWeight)
                 }
                 editingWeight = null
             },
@@ -105,7 +112,11 @@ private sealed interface WeightEditTarget {
     val weightKg: Double
     data class Kb(override val weightKg: Double) : WeightEditTarget
     data class Strength(val exercise: Exercise, override val weightKg: Double) : WeightEditTarget
+    data class Bodyweight(override val weightKg: Double) : WeightEditTarget
 }
+
+/** Sensible default shown in the bodyweight dialog before any entry exists. */
+private const val DEFAULT_BODYWEIGHT_KG = 80.0
 
 @Composable
 private fun LoadingPlaceholder() {
@@ -200,6 +211,17 @@ private fun MainBlock(
             bump = bump,
             onAccept = onBumpAccept,
             onSnooze = onBumpSnooze,
+        )
+        Spacer(Modifier.height(16.dp))
+    }
+
+    if (state.bodyweightPrompt) {
+        BodyweightBanner(
+            onUpdate = {
+                onWeightTap(
+                    WeightEditTarget.Bodyweight(state.currentBodyweightKg ?: DEFAULT_BODYWEIGHT_KG),
+                )
+            },
         )
         Spacer(Modifier.height(16.dp))
     }
@@ -352,6 +374,30 @@ private fun KbBumpBanner(
 }
 
 @Composable
+private fun BodyweightBanner(onUpdate: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("bodyweight_banner"),
+        tonalElevation = 2.dp,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "Weekly check-in — what's your bodyweight?",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Button(onClick = onUpdate) {
+                Text("Update bodyweight")
+            }
+        }
+    }
+}
+
+@Composable
 private fun KbFlowSection(
     kbWeightKg: Double,
     block: KbBlock,
@@ -444,6 +490,19 @@ private fun StrengthSection(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f),
             textAlign = TextAlign.End,
+        )
+    }
+    if (row.exercise.mechanic == ExerciseMechanic.ASSISTED) {
+        Spacer(Modifier.height(4.dp))
+        Text(
+            // The logged number is machine assistance; effective load is shown once
+            // a bodyweight has been entered for the week.
+            text = buildString {
+                append("Assistance")
+                row.effectiveLoadKg?.let { append(" · Effective ${formatKg(it)} kg") }
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
     Spacer(Modifier.height(12.dp))
@@ -577,6 +636,7 @@ private fun WeightEditDialog(
     initialValue: Double,
     onConfirm: (Double) -> Unit,
     onDismiss: () -> Unit,
+    fieldLabel: String = "Weight (kg)",
 ) {
     var text by remember { mutableStateOf(formatKg(initialValue)) }
     AlertDialog(
@@ -586,7 +646,7 @@ private fun WeightEditDialog(
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                label = { Text("Weight (kg)") },
+                label = { Text(fieldLabel) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth(),

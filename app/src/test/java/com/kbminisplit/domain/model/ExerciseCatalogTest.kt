@@ -26,7 +26,7 @@ class ExerciseCatalogTest {
         assertThat(ExerciseCatalog.strengthForSplit(Split.A))
             .isEqualTo(ExerciseCatalog.LatPulldown to ExerciseCatalog.BarbellRow)
         assertThat(ExerciseCatalog.strengthForSplit(Split.B))
-            .isEqualTo(ExerciseCatalog.Bench to ExerciseCatalog.Ohp)
+            .isEqualTo(ExerciseCatalog.Bench to ExerciseCatalog.AssistedDip)
         assertThat(ExerciseCatalog.strengthForSplit(Split.C))
             .isEqualTo(ExerciseCatalog.HighBarSquat to ExerciseCatalog.RomanianDeadlift)
     }

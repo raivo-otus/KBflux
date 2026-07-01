@@ -39,6 +39,12 @@ data class StrengthMovementRow(
     val targetReps: Int,
     val prime: SetCell,
     val working: List<SetCell>,
+    /**
+     * Physiological load for an ASSISTED movement (bodyweight − pin), for the
+     * "Effective: X kg" subtext. Null for traditional lifts or when no bodyweight
+     * is known yet.
+     */
+    val effectiveLoadKg: Double? = null,
 )
 
 /** Which part of the session the Tracker is currently showing. */
@@ -65,6 +71,10 @@ sealed interface TrackerUiState {
         val showAuxPrompt: Boolean = false,
         /** Everything the session needs is resolved — show the feedback sheet. */
         val feedbackReady: Boolean = false,
+        /** Weekly bodyweight check-in is due (assisted movement today + entry stale). */
+        val bodyweightPrompt: Boolean = false,
+        /** Latest known bodyweight, used to prefill the check-in dialog. */
+        val currentBodyweightKg: Double? = null,
     ) : TrackerUiState
 }
 

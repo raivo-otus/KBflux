@@ -205,6 +205,89 @@ class PrescriptionTest {
         assertThat(rx.targetReps).isEqualTo(11)
     }
 
+    // --- Assisted movements (inverted double progression) ---
+
+    private val dip = ExerciseCatalog.AssistedDip
+
+    private fun assistedDipSession(
+        date: LocalDate,
+        weight: Double,
+        reps: Int,
+        statuses: List<SetStatus> = List(3) { SetStatus.Completed },
+        feedback: Feedback = Feedback.Green,
+    ): Session = Session(
+        date = date,
+        split = Split.B,
+        feedback = feedback,
+        kbWeightKg = 16.0,
+        sets = buildList {
+            add(primingSet(dip, weight))
+            addAll(workingSets(dip, weight, reps, statuses))
+        },
+    )
+
+    @Test
+    fun `assisted dip with no history falls back to its default assist weight`() {
+        val rx = getPrescription(emptyList(), dip, DEFAULT_ONBOARDING)
+
+        assertThat(rx.weightKg).isEqualTo(40.0)
+        assertThat(rx.targetReps).isEqualTo(8)
+    }
+
+    @Test
+    fun `assisted graduation drops the assistance pin by one step`() {
+        val history = listOf(
+            assistedDipSession(LocalDate.of(2026, 5, 1), weight = 40.0, reps = 12), // at max reps
+        )
+
+        val rx = getPrescription(history, dip, DEFAULT_ONBOARDING)
+
+        // Less assistance next time, reps reset to min.
+        assertThat(rx.weightKg).isEqualTo(37.5)
+        assertThat(rx.targetReps).isEqualTo(8)
+    }
+
+    @Test
+    fun `assisted reps still climb one at a time below max`() {
+        val history = listOf(
+            assistedDipSession(LocalDate.of(2026, 5, 1), weight = 40.0, reps = 8),
+        )
+
+        val rx = getPrescription(history, dip, DEFAULT_ONBOARDING)
+
+        // Same assistance, one more rep — rep logic is unchanged for assisted.
+        assertThat(rx.weightKg).isEqualTo(40.0)
+        assertThat(rx.targetReps).isEqualTo(9)
+    }
+
+    @Test
+    fun `assisted pin floors at zero rather than going negative`() {
+        val history = listOf(
+            assistedDipSession(LocalDate.of(2026, 5, 1), weight = 2.0, reps = 12),
+        )
+
+        val rx = getPrescription(history, dip, DEFAULT_ONBOARDING)
+
+        assertThat(rx.weightKg).isEqualTo(0.0)
+        assertThat(rx.targetReps).isEqualTo(8)
+    }
+
+    @Test
+    fun `assisted deload adds assistance instead of removing load`() {
+        // Three consecutive red Split B sessions trigger a deload.
+        val history = listOf(
+            assistedDipSession(LocalDate.of(2026, 5, 1), weight = 30.0, reps = 8, feedback = Feedback.Red),
+            assistedDipSession(LocalDate.of(2026, 5, 3), weight = 30.0, reps = 8, feedback = Feedback.Red),
+            assistedDipSession(LocalDate.of(2026, 5, 5), weight = 30.0, reps = 8, feedback = Feedback.Red),
+        )
+
+        val rx = getPrescription(history, dip, DEFAULT_ONBOARDING)
+
+        // Easier = more assistance (higher pin), reps reset to min.
+        assertThat(rx.weightKg).isEqualTo(32.5)
+        assertThat(rx.targetReps).isEqualTo(8)
+    }
+
     @Test
     fun `romanian deadlift follows standard rules`() {
         val rdl = ExerciseCatalog.RomanianDeadlift

@@ -19,6 +19,21 @@ object ExerciseCatalog {
     val BarbellRow = Exercise("barbell_row", "Barbell Row", Category.A, isPerSide = false, weightStepKg = 2.5)
     val Bench = Exercise("bench", "Bench Press", Category.B, isPerSide = false, weightStepKg = 2.5)
     val Ohp = Exercise("ohp", "Overhead Press", Category.B, isPerSide = false, weightStepKg = 2.5)
+
+    // Assisted Dips replaced OHP as Split B's second push movement. The logged
+    // number is machine assistance (pin weight) subtracted from bodyweight, so it
+    // uses inverted double progression (§ assisted). Not onboarded — carries a
+    // [Exercise.defaultStartingWeightKg] assist fallback until the first session,
+    // adjustable via the Tracker's weight editor to match the user's machine.
+    val AssistedDip = Exercise(
+        slug = "assisted_dip",
+        displayName = "Assisted Dips",
+        category = Category.B,
+        isPerSide = false,
+        weightStepKg = 2.5,
+        defaultStartingWeightKg = 40.0,
+        mechanic = ExerciseMechanic.ASSISTED,
+    )
     val HighBarSquat = Exercise("high_bar_squat", "High-Bar Squat", Category.C, isPerSide = false, weightStepKg = 2.5)
     val RomanianDeadlift = Exercise(
         slug = "romanian_deadlift",
@@ -67,7 +82,9 @@ object ExerciseCatalog {
 
     val all: List<Exercise> = listOf(
         Swings, CleanAndPress, GobletSquat, KbFlow,
-        LatPulldown, BarbellRow, Bench, Ohp, HighBarSquat, RomanianDeadlift,
+        // Ohp is retained (no longer prescribed) so historical OHP sessions still
+        // resolve via bySlug; AssistedDip is its Split B replacement.
+        LatPulldown, BarbellRow, Bench, Ohp, AssistedDip, HighBarSquat, RomanianDeadlift,
         // Aux appended last so LogViewModel's CATALOG_ORDER renders them after
         // the main movements in the session-detail sheet.
         SideDeltFly, TricepExtension, BackExtension, BicepCurl,
@@ -80,7 +97,7 @@ object ExerciseCatalog {
 
     fun strengthForSplit(split: Split): Pair<Exercise, Exercise> = when (split) {
         Split.A -> LatPulldown to BarbellRow
-        Split.B -> Bench to Ohp
+        Split.B -> Bench to AssistedDip
         Split.C -> HighBarSquat to RomanianDeadlift
     }
 

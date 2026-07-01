@@ -2,12 +2,14 @@ package com.kbminisplit.ui.tracker
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kbminisplit.data.repository.BodyweightState
 import com.kbminisplit.data.repository.InProgressRepository
 import com.kbminisplit.data.repository.InProgressSnapshot
 import com.kbminisplit.data.repository.SessionRepository
 import com.kbminisplit.data.repository.SettingsRepository
 import com.kbminisplit.domain.model.Exercise
 import com.kbminisplit.domain.model.ExerciseCatalog
+import com.kbminisplit.domain.model.ExerciseMechanic
 import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.OnboardingDefaults
 import com.kbminisplit.domain.model.Prescription
@@ -16,6 +18,7 @@ import com.kbminisplit.domain.model.SetEntry
 import com.kbminisplit.domain.model.SetStatus
 import com.kbminisplit.domain.model.Split
 import com.kbminisplit.domain.progression.KbBumpSnooze
+import com.kbminisplit.domain.progression.isBodyweightStale
 import com.kbminisplit.domain.progression.movementOrder
 import com.kbminisplit.domain.progression.nextSplit
 import com.kbminisplit.domain.progression.getPrescription
@@ -79,17 +82,23 @@ class TrackerViewModel @Inject constructor(
     private val defaultsFlow = settingsRepository.observeOnboardingDefaults()
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    private val bodyweightFlow = settingsRepository.observeBodyweight()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, BodyweightState(null, null))
+
     val state: StateFlow<TrackerUiState> = combine(
         inProgressRepository.observe(),
         historyFlow,
-        defaultsFlow,
+        // Nested so the 5-arg combine stays typed: onboarding defaults + bodyweight
+        // both originate from settings.
+        combine(defaultsFlow, bodyweightFlow) { defaults, bodyweight -> defaults to bodyweight },
         settingsRepository.observeKbBumpSnooze(),
         auxSkipped,
-    ) { inProgress, history, defaults, snooze, skipAux ->
+    ) { inProgress, history, defaultsAndBodyweight, snooze, skipAux ->
+        val (defaults, bodyweight) = defaultsAndBodyweight
         if (defaults == null || inProgress == null) {
             TrackerUiState.Loading
         } else {
-            buildReady(inProgress, history, defaults, snooze, skipAux)
+            buildReady(inProgress, history, defaults, bodyweight, snooze, skipAux)
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, TrackerUiState.Loading)
 
@@ -137,6 +146,9 @@ class TrackerViewModel @Inject constructor(
                         feedback = feedback,
                         kbWeightKg = snapshot.kbWeightKg,
                         sets = snapshot.sets,
+                        // Snapshot current bodyweight so historical effective load
+                        // stays fixed even if bodyweight is later corrected.
+                        bodyweightKg = bodyweightFlow.value.kg,
                     ),
                 )
                 // bootstrapIfNeeded() will call start() which already clears.
@@ -170,6 +182,11 @@ class TrackerViewModel @Inject constructor(
     /** User declined auxiliary work: go straight to the feedback sheet. */
     fun onSkipAux() {
         auxSkipped.value = true
+    }
+
+    /** Record the weekly bodyweight check-in from the Tracker prompt. */
+    fun onBodyweightEntered(kg: Double) {
+        viewModelScope.launch { settingsRepository.updateBodyweight(kg) }
     }
 
     fun onKbBumpAccept() {
@@ -342,19 +359,20 @@ class TrackerViewModel @Inject constructor(
         snapshot: InProgressSnapshot,
         history: List<Session>,
         defaults: OnboardingDefaults,
+        bodyweight: BodyweightState,
         snooze: KbBumpSnooze?,
         auxSkipped: Boolean,
     ): TrackerUiState.Ready {
         val (m1, m2) = movementOrder(history, snapshot.split)
         val kbBlock = snapshot.sets.toKbBlock()
-        val strengthRows = snapshot.sets.toStrengthRows(listOf(m1, m2))
+        val strengthRows = snapshot.sets.toStrengthRows(listOf(m1, m2), bodyweight.kg)
 
         val kbAllResolved = kbBlock.circuits.all { it.status != SetStatus.Pending }
         val strengthAllResolved = strengthRows.all { row -> row.isResolved() }
         val mainResolved = kbBlock.circuits.isNotEmpty() && kbAllResolved && strengthAllResolved
 
         // Aux rows appear only once the user opts in; presence drives the phase.
-        val auxRows = snapshot.sets.toStrengthRows(ExerciseCatalog.auxForSplit(snapshot.split))
+        val auxRows = snapshot.sets.toStrengthRows(ExerciseCatalog.auxForSplit(snapshot.split), bodyweight.kg)
         val auxPresent = auxRows.isNotEmpty()
         val auxResolved = auxPresent && auxRows.all { row -> row.isResolved() }
 
@@ -375,6 +393,12 @@ class TrackerViewModel @Inject constructor(
             null
         }
 
+        // Nudge for a weekly bodyweight only when it actually matters today (an
+        // assisted movement is programmed) and the last check-in has gone stale.
+        val hasAssisted = strengthRows.any { it.exercise.mechanic == ExerciseMechanic.ASSISTED }
+        val bodyweightPrompt = hasAssisted &&
+            isBodyweightStale(bodyweight.loggedAtMillis, clock.millis())
+
         return TrackerUiState.Ready(
             date = snapshot.date,
             split = snapshot.split,
@@ -388,6 +412,8 @@ class TrackerViewModel @Inject constructor(
             aux = auxRows,
             showAuxPrompt = showAuxPrompt,
             feedbackReady = feedbackReady,
+            bodyweightPrompt = bodyweightPrompt,
+            currentBodyweightKg = bodyweight.kg,
         )
     }
 
