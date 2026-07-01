@@ -115,6 +115,12 @@ class TrackerViewModelTest {
                     },
                 )
             }
+            coEvery { addSets(any()) } answers {
+                @Suppress("UNCHECKED_CAST")
+                val newSets = firstArg<List<SetEntry>>()
+                val current = inProgressFlow.value ?: return@answers
+                inProgressFlow.value = current.copy(sets = current.sets + newSets)
+            }
             coEvery { clear() } answers { inProgressFlow.value = null }
             coEvery { updateSetState(any(), any(), any(), any()) } answers {
                 val slug: String = firstArg()
@@ -302,7 +308,7 @@ class TrackerViewModelTest {
             assertThat(ready.strength.map { it.exercise.slug })
                 .containsExactly(ExerciseCatalog.LatPulldown.slug, ExerciseCatalog.BarbellRow.slug)
                 .inOrder()
-            assertThat(ready.allButtonsResolved).isFalse()
+            assertThat(ready.mainResolved).isFalse()
         }
     }
 
@@ -562,6 +568,101 @@ class TrackerViewModelTest {
 
             val ready = vm.state.value as TrackerUiState.Ready
             assertThat(ready.kbWeightKg).isEqualTo(20.0)
+        }
+    }
+
+    // ---- Auxiliary flow ----
+
+    @Test
+    fun `aux prompt appears once main work is resolved`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            resolveAllSets()
+            advanceUntilIdle()
+
+            val ready = vm.state.value as TrackerUiState.Ready
+            assertThat(ready.mainResolved).isTrue()
+            assertThat(ready.showAuxPrompt).isTrue()
+            assertThat(ready.feedbackReady).isFalse()
+            assertThat(ready.phase).isEqualTo(TrackerPhase.MAIN)
+        }
+    }
+
+    @Test
+    fun `declining aux moves straight to feedback`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            resolveAllSets()
+            advanceUntilIdle()
+
+            vm.onSkipAux()
+            advanceUntilIdle()
+
+            val ready = vm.state.value as TrackerUiState.Ready
+            assertThat(ready.showAuxPrompt).isFalse()
+            assertThat(ready.feedbackReady).isTrue()
+            assertThat(ready.phase).isEqualTo(TrackerPhase.MAIN)
+        }
+    }
+
+    @Test
+    fun `starting aux appends aux rows and enters AUX phase`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            resolveAllSets()
+            advanceUntilIdle()
+
+            vm.onStartAux()
+            advanceUntilIdle()
+
+            val ready = vm.state.value as TrackerUiState.Ready
+            assertThat(ready.phase).isEqualTo(TrackerPhase.AUX)
+            assertThat(ready.aux.map { it.exercise.slug }).containsExactly(
+                ExerciseCatalog.SideDeltFly.slug,
+                ExerciseCatalog.TricepExtension.slug,
+                ExerciseCatalog.BackExtension.slug,
+            ).inOrder()
+            ready.aux.forEach { row -> assertThat(row.working).hasSize(3) }
+            // Falls back to the movement's default starting weight (no history yet).
+            val fly = ready.aux.first { it.exercise.slug == ExerciseCatalog.SideDeltFly.slug }
+            assertThat(fly.weightKg).isEqualTo(6.0)
+            // Aux not yet resolved → no feedback sheet.
+            assertThat(ready.feedbackReady).isFalse()
+        }
+    }
+
+    @Test
+    fun `feedback after aux commits main and aux sets in one session`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            resolveAllSets()
+            advanceUntilIdle()
+            vm.onStartAux()
+            advanceUntilIdle()
+            resolveAllSets() // now resolves main + aux rows together
+            advanceUntilIdle()
+
+            val ready = vm.state.value as TrackerUiState.Ready
+            assertThat(ready.feedbackReady).isTrue()
+
+            val captured = slot<Session>()
+            coEvery { sessionRepository.addSession(capture(captured)) } answers {
+                historyFlow.value = historyFlow.value + captured.captured
+                7L
+            }
+
+            vm.onFeedback(Feedback.Green)
+            advanceUntilIdle()
+
+            val auxSlugs = ExerciseCatalog.auxForSplit(Split.A).map { it.slug }.toSet()
+            // 3 aux movements × (1 prime + 3 working) = 12 aux sets.
+            assertThat(captured.captured.sets.count { it.exerciseSlug in auxSlugs }).isEqualTo(12)
+            // 11 main (3 KB + 2×4) + 12 aux = 23.
+            assertThat(captured.captured.sets).hasSize(23)
         }
     }
 

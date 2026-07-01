@@ -26,6 +26,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
@@ -67,6 +68,11 @@ class TrackerViewModel @Inject constructor(
 
     private val processing = AtomicBoolean(false)
 
+    // Transient "user tapped No to auxiliary work" flag. Not persisted: aux
+    // presence is derived from the in-progress rows, but a decision to *skip*
+    // aux has no backing row, so it lives here and resets on each fresh session.
+    private val auxSkipped = MutableStateFlow(false)
+
     private val historyFlow = sessionRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -78,11 +84,12 @@ class TrackerViewModel @Inject constructor(
         historyFlow,
         defaultsFlow,
         settingsRepository.observeKbBumpSnooze(),
-    ) { inProgress, history, defaults, snooze ->
+        auxSkipped,
+    ) { inProgress, history, defaults, snooze, skipAux ->
         if (defaults == null || inProgress == null) {
             TrackerUiState.Loading
         } else {
-            buildReady(inProgress, history, defaults, snooze)
+            buildReady(inProgress, history, defaults, snooze, skipAux)
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, TrackerUiState.Loading)
 
@@ -141,6 +148,30 @@ class TrackerViewModel @Inject constructor(
         }
     }
 
+    /** User chose to do auxiliary work: append the aux block to the session. */
+    fun onStartAux() {
+        if (!processing.compareAndSet(false, true)) return
+        viewModelScope.launch {
+            try {
+                val snapshot = inProgressRepository.get() ?: return@launch
+                val auxExercises = ExerciseCatalog.auxForSplit(snapshot.split)
+                val auxSlugs = auxExercises.map { it.slug }.toSet()
+                // Idempotent: don't re-add if aux rows already exist.
+                if (snapshot.sets.any { it.exerciseSlug in auxSlugs }) return@launch
+                val defaults = settingsRepository.getOnboardingDefaults() ?: return@launch
+                val history = sessionRepository.getAll()
+                inProgressRepository.addSets(buildAuxSets(auxExercises, defaults, history))
+            } finally {
+                processing.set(false)
+            }
+        }
+    }
+
+    /** User declined auxiliary work: go straight to the feedback sheet. */
+    fun onSkipAux() {
+        auxSkipped.value = true
+    }
+
     fun onKbBumpAccept() {
         if (!processing.compareAndSet(false, true)) return
         viewModelScope.launch {
@@ -194,6 +225,7 @@ class TrackerViewModel @Inject constructor(
                 kbWeightKg = defaults.kbWeightKg,
                 sets = sets,
             )
+            auxSkipped.value = false
         }
     }
 
@@ -239,6 +271,7 @@ class TrackerViewModel @Inject constructor(
             kbWeightKg = defaults.kbWeightKg,
             sets = sets,
         )
+        auxSkipped.value = false
     }
 
     private fun buildBootstrapSets(
@@ -273,6 +306,20 @@ class TrackerViewModel @Inject constructor(
         }
     }
 
+    private fun buildAuxSets(
+        auxExercises: List<Exercise>,
+        defaults: OnboardingDefaults,
+        history: List<Session>,
+    ): List<SetEntry> = buildList {
+        auxExercises.forEach { exercise ->
+            val rx = getPrescription(history, exercise, defaults)
+            add(primeFor(exercise, rx))
+            repeat(STRENGTH_WORKING_SETS) { idx ->
+                add(workingFor(exercise, rx, idx + 1))
+            }
+        }
+    }
+
     private fun primeFor(exercise: Exercise, rx: Prescription) = SetEntry(
         exerciseSlug = exercise.slug,
         setIndex = 0,
@@ -296,17 +343,25 @@ class TrackerViewModel @Inject constructor(
         history: List<Session>,
         defaults: OnboardingDefaults,
         snooze: KbBumpSnooze?,
+        auxSkipped: Boolean,
     ): TrackerUiState.Ready {
         val (m1, m2) = movementOrder(history, snapshot.split)
         val kbBlock = snapshot.sets.toKbBlock()
         val strengthRows = snapshot.sets.toStrengthRows(listOf(m1, m2))
 
         val kbAllResolved = kbBlock.circuits.all { it.status != SetStatus.Pending }
-        val strengthAllResolved = strengthRows.all { row ->
-            row.prime.status != SetStatus.Pending &&
-                row.working.all { it.status != SetStatus.Pending }
-        }
-        val allResolved = kbBlock.circuits.isNotEmpty() && kbAllResolved && strengthAllResolved
+        val strengthAllResolved = strengthRows.all { row -> row.isResolved() }
+        val mainResolved = kbBlock.circuits.isNotEmpty() && kbAllResolved && strengthAllResolved
+
+        // Aux rows appear only once the user opts in; presence drives the phase.
+        val auxRows = snapshot.sets.toStrengthRows(ExerciseCatalog.auxForSplit(snapshot.split))
+        val auxPresent = auxRows.isNotEmpty()
+        val auxResolved = auxPresent && auxRows.all { row -> row.isResolved() }
+
+        val phase = if (auxPresent) TrackerPhase.AUX else TrackerPhase.MAIN
+        val showAuxPrompt = phase == TrackerPhase.MAIN && mainResolved && !auxSkipped
+        val feedbackReady = (mainResolved && auxSkipped) || auxResolved
+
         val noKbTouched = kbBlock.circuits.all { it.status == SetStatus.Pending }
         val kbBump = if (
             noKbTouched &&
@@ -326,11 +381,18 @@ class TrackerViewModel @Inject constructor(
             kbWeightKg = snapshot.kbWeightKg,
             kbBlock = kbBlock,
             strength = strengthRows,
-            allButtonsResolved = allResolved,
+            mainResolved = mainResolved,
             kbBump = kbBump,
             isFirstSession = history.isEmpty(),
+            phase = phase,
+            aux = auxRows,
+            showAuxPrompt = showAuxPrompt,
+            feedbackReady = feedbackReady,
         )
     }
+
+    private fun StrengthMovementRow.isResolved(): Boolean =
+        prime.status != SetStatus.Pending && working.all { it.status != SetStatus.Pending }
 
     companion object {
         const val KB_BUMP_STEP_KG = 2.0

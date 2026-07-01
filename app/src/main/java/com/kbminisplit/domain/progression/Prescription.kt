@@ -37,8 +37,7 @@ fun getPrescription(
         val lastWeight = if (lastWithMovement != null) {
             lastWithMovement.sets.first { it.exerciseSlug == exercise.slug && !it.isPriming }.weightKg
         } else {
-            onboarding.startingWeightsBySlug[exercise.slug]
-                ?: error("No onboarding starting weight for ${exercise.slug}")
+            startingWeightFor(exercise, onboarding)
         }
         return Prescription(
             exercise = exercise,
@@ -54,8 +53,7 @@ fun getPrescription(
     }
 
     if (lastWithMovement == null) {
-        val startingWeight = onboarding.startingWeightsBySlug[exercise.slug]
-            ?: error("No onboarding starting weight for ${exercise.slug}")
+        val startingWeight = startingWeightFor(exercise, onboarding)
         // If the global starting reps are outside this movement's range, use its minimum
         val reps = if (onboarding.startingTargetReps > maxReps) {
             exercise.minReps
@@ -80,6 +78,16 @@ fun getPrescription(
         else -> Prescription(exercise, weight + exercise.weightStepKg, exercise.minReps)
     }
 }
+
+/**
+ * Starting weight for a movement's first-ever session: the onboarding value if
+ * one exists, otherwise the movement's [Exercise.defaultStartingWeightKg] fallback
+ * (auxiliary movements aren't onboarded).
+ */
+private fun startingWeightFor(exercise: Exercise, onboarding: OnboardingDefaults): Double =
+    onboarding.startingWeightsBySlug[exercise.slug]
+        ?: exercise.defaultStartingWeightKg
+        ?: error("No starting weight (onboarding or default) for ${exercise.slug}")
 
 private fun shouldDeload(history: List<Session>, split: Split): Boolean {
     val lastThreeForSplit = history.asReversed().asSequence()

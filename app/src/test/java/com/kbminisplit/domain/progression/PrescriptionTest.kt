@@ -2,6 +2,8 @@ package com.kbminisplit.domain.progression
 
 import com.google.common.truth.Truth.assertThat
 import com.kbminisplit.domain.model.ExerciseCatalog
+import com.kbminisplit.domain.model.Feedback
+import com.kbminisplit.domain.model.Session
 import com.kbminisplit.domain.model.SetStatus
 import com.kbminisplit.domain.model.Split
 import org.junit.Test
@@ -168,6 +170,39 @@ class PrescriptionTest {
         assertThat(pulldownRx.targetReps).isEqualTo(8)
         assertThat(rowRx.weightKg).isEqualTo(40.0)
         assertThat(rowRx.targetReps).isEqualTo(8)
+    }
+
+    @Test
+    fun `aux movement with no history falls back to its default starting weight`() {
+        val fly = ExerciseCatalog.SideDeltFly
+
+        // DEFAULT_ONBOARDING has no aux slug, so getPrescription must use the
+        // movement's own defaultStartingWeightKg rather than erroring.
+        val rx = getPrescription(emptyList(), fly, DEFAULT_ONBOARDING)
+
+        assertThat(rx.weightKg).isEqualTo(6.0)
+        assertThat(rx.targetReps).isEqualTo(8)
+    }
+
+    @Test
+    fun `aux movement double-progresses from its own history`() {
+        val fly = ExerciseCatalog.SideDeltFly
+        val session = Session(
+            date = LocalDate.of(2026, 5, 1),
+            split = Split.A,
+            feedback = Feedback.Green,
+            kbWeightKg = 16.0,
+            sets = buildList {
+                add(primingSet(fly, 6.0))
+                addAll(workingSets(fly, 6.0, 10))
+            },
+        )
+
+        val rx = getPrescription(listOf(session), fly, DEFAULT_ONBOARDING)
+
+        // All working sets completed and reps below standard max → bump reps only.
+        assertThat(rx.weightKg).isEqualTo(6.0)
+        assertThat(rx.targetReps).isEqualTo(11)
     }
 
     @Test

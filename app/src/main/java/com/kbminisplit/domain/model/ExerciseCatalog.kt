@@ -28,9 +28,49 @@ object ExerciseCatalog {
         weightStepKg = 2.5,
     )
 
+    // Auxiliary movements — optional accessory work done after the main workout
+    // (§ aux). They follow the same double progression as the strength lifts but
+    // are not part of onboarding, so each carries a [Exercise.defaultStartingWeightKg]
+    // fallback used until the movement's first session is logged.
+    val SideDeltFly = Exercise(
+        slug = "side_delt_fly",
+        displayName = "Side-Delt Flyes",
+        category = Category.AUX,
+        isPerSide = false,
+        weightStepKg = 2.0,
+        defaultStartingWeightKg = 6.0,
+    )
+    val TricepExtension = Exercise(
+        slug = "tricep_extension",
+        displayName = "Tricep Extensions",
+        category = Category.AUX,
+        isPerSide = false,
+        weightStepKg = 2.0,
+        defaultStartingWeightKg = 10.0,
+    )
+    val BackExtension = Exercise(
+        slug = "back_extension",
+        displayName = "Back Extensions",
+        category = Category.AUX,
+        isPerSide = false,
+        weightStepKg = 2.0,
+        defaultStartingWeightKg = 0.0,
+    )
+    val BicepCurl = Exercise(
+        slug = "bicep_curl",
+        displayName = "Bicep Curls",
+        category = Category.AUX,
+        isPerSide = false,
+        weightStepKg = 2.0,
+        defaultStartingWeightKg = 10.0,
+    )
+
     val all: List<Exercise> = listOf(
         Swings, CleanAndPress, GobletSquat, KbFlow,
         LatPulldown, BarbellRow, Bench, Ohp, HighBarSquat, RomanianDeadlift,
+        // Aux appended last so LogViewModel's CATALOG_ORDER renders them after
+        // the main movements in the session-detail sheet.
+        SideDeltFly, TricepExtension, BackExtension, BicepCurl,
     )
 
     /** Reference labels for the KB section header — not used for set tracking. */
@@ -42,5 +82,12 @@ object ExerciseCatalog {
         Split.A -> LatPulldown to BarbellRow
         Split.B -> Bench to Ohp
         Split.C -> HighBarSquat to RomanianDeadlift
+    }
+
+    /** Auxiliary movements offered after the main workout for a given split. */
+    fun auxForSplit(split: Split): List<Exercise> = when (split) {
+        Split.A -> listOf(SideDeltFly, TricepExtension, BackExtension)
+        Split.B -> listOf(SideDeltFly, BicepCurl, BackExtension)
+        Split.C -> listOf(SideDeltFly, TricepExtension, BicepCurl)
     }
 }

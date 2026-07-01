@@ -75,6 +75,8 @@ fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
                     onFeedback = viewModel::onFeedback,
                     onBumpAccept = viewModel::onKbBumpAccept,
                     onBumpSnooze = viewModel::onKbBumpSnooze,
+                    onStartAux = viewModel::onStartAux,
+                    onSkipAux = viewModel::onSkipAux,
                 ) { editingWeight = it }
             }
         }
@@ -122,6 +124,8 @@ private fun ReadyContent(
     onFeedback: (Feedback) -> Unit,
     onBumpAccept: () -> Unit,
     onBumpSnooze: () -> Unit,
+    onStartAux: () -> Unit,
+    onSkipAux: () -> Unit,
     onWeightTap: (WeightEditTarget) -> Unit,
 ) {
     Column(
@@ -140,42 +144,29 @@ private fun ReadyContent(
 
         Spacer(Modifier.height(20.dp))
 
-        state.kbBump?.let { bump ->
-            KbBumpBanner(
-                bump = bump,
-                onAccept = onBumpAccept,
-                onSnooze = onBumpSnooze,
+        when (state.phase) {
+            TrackerPhase.MAIN -> MainBlock(
+                state = state,
+                onSetTap = onSetTap,
+                onSetDoubleTap = onSetDoubleTap,
+                onSetLongPress = onSetLongPress,
+                onBumpAccept = onBumpAccept,
+                onBumpSnooze = onBumpSnooze,
+                onWeightTap = onWeightTap,
             )
-            Spacer(Modifier.height(16.dp))
-        }
 
-        KbFlowSection(
-            kbWeightKg = state.kbWeightKg,
-            block = state.kbBlock,
-            onTap = onSetTap,
-            onDoubleTap = onSetDoubleTap,
-            onLongPress = onSetLongPress,
-            onWeightTap = { onWeightTap(WeightEditTarget.Kb(state.kbWeightKg)) },
-        )
-
-        Spacer(Modifier.height(20.dp))
-        HorizontalDivider()
-        Spacer(Modifier.height(20.dp))
-
-        state.strength.forEachIndexed { index, row ->
-            StrengthSection(
-                row = row,
-                onTap = onSetTap,
-                onDoubleTap = onSetDoubleTap,
-                onLongPress = onSetLongPress,
-                onWeightTap = { onWeightTap(WeightEditTarget.Strength(row.exercise, row.weightKg)) },
+            TrackerPhase.AUX -> AuxBlock(
+                aux = state.aux,
+                onSetTap = onSetTap,
+                onSetDoubleTap = onSetDoubleTap,
+                onSetLongPress = onSetLongPress,
+                onWeightTap = onWeightTap,
             )
-            if (index < state.strength.lastIndex) {
-                Spacer(Modifier.height(20.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(20.dp))
-            }
         }
+    }
+
+    if (state.showAuxPrompt) {
+        AuxPromptDialog(onYes = onStartAux, onNo = onSkipAux)
     }
 
     // Spec §4.4: feedback is mandatory. Veto Hidden so swipe-down / back
@@ -184,7 +175,7 @@ private fun ReadyContent(
         skipPartiallyExpanded = true,
     )
 
-    if (state.allButtonsResolved) {
+    if (state.feedbackReady) {
         ModalBottomSheet(
             onDismissRequest = { /* No-op: spec §4.4. */ },
             sheetState = sheetState,
@@ -192,6 +183,97 @@ private fun ReadyContent(
             FeedbackSheet(onFeedback = onFeedback)
         }
     }
+}
+
+@Composable
+private fun MainBlock(
+    state: TrackerUiState.Ready,
+    onSetTap: (SetCell) -> Unit,
+    onSetDoubleTap: (SetCell) -> Unit,
+    onSetLongPress: (SetCell) -> Unit,
+    onBumpAccept: () -> Unit,
+    onBumpSnooze: () -> Unit,
+    onWeightTap: (WeightEditTarget) -> Unit,
+) {
+    state.kbBump?.let { bump ->
+        KbBumpBanner(
+            bump = bump,
+            onAccept = onBumpAccept,
+            onSnooze = onBumpSnooze,
+        )
+        Spacer(Modifier.height(16.dp))
+    }
+
+    KbFlowSection(
+        kbWeightKg = state.kbWeightKg,
+        block = state.kbBlock,
+        onTap = onSetTap,
+        onDoubleTap = onSetDoubleTap,
+        onLongPress = onSetLongPress,
+        onWeightTap = { onWeightTap(WeightEditTarget.Kb(state.kbWeightKg)) },
+    )
+
+    Spacer(Modifier.height(20.dp))
+    HorizontalDivider()
+    Spacer(Modifier.height(20.dp))
+
+    state.strength.forEachIndexed { index, row ->
+        StrengthSection(
+            row = row,
+            onTap = onSetTap,
+            onDoubleTap = onSetDoubleTap,
+            onLongPress = onSetLongPress,
+            onWeightTap = { onWeightTap(WeightEditTarget.Strength(row.exercise, row.weightKg)) },
+        )
+        if (index < state.strength.lastIndex) {
+            Spacer(Modifier.height(20.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun AuxBlock(
+    aux: List<StrengthMovementRow>,
+    onSetTap: (SetCell) -> Unit,
+    onSetDoubleTap: (SetCell) -> Unit,
+    onSetLongPress: (SetCell) -> Unit,
+    onWeightTap: (WeightEditTarget) -> Unit,
+) {
+    SectionTitle(text = "Auxiliary", modifier = Modifier.testTag("aux_block"))
+    Spacer(Modifier.height(20.dp))
+
+    aux.forEachIndexed { index, row ->
+        StrengthSection(
+            row = row,
+            onTap = onSetTap,
+            onDoubleTap = onSetDoubleTap,
+            onLongPress = onSetLongPress,
+            onWeightTap = { onWeightTap(WeightEditTarget.Strength(row.exercise, row.weightKg)) },
+        )
+        if (index < aux.lastIndex) {
+            Spacer(Modifier.height(20.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun AuxPromptDialog(onYes: () -> Unit, onNo: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = { /* Mandatory choice: no swipe/back dismiss. */ },
+        modifier = Modifier.testTag("aux_prompt"),
+        title = { Text("Auxiliary work?") },
+        text = { Text("Nice work. Do you want to add your auxiliary movements before logging?") },
+        confirmButton = {
+            Button(onClick = onYes) { Text("Yes") }
+        },
+        dismissButton = {
+            TextButton(onClick = onNo) { Text("No, finish") }
+        },
+    )
 }
 
 @Composable
