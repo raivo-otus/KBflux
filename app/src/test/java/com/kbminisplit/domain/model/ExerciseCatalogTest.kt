@@ -49,8 +49,30 @@ class ExerciseCatalogTest {
             assertThat(it.weightStepKg).isEqualTo(2.0)
         }
 
-        ExerciseCatalog.all.filter { it.category != Category.KB }.forEach {
+        val strengthCategories = listOf(Category.A, Category.B, Category.C)
+        ExerciseCatalog.all.filter { it.category in strengthCategories }.forEach {
             assertThat(it.weightStepKg).isEqualTo(2.5)
+        }
+    }
+
+    @Test
+    fun `aux movements match the spec per split`() {
+        assertThat(ExerciseCatalog.auxForSplit(Split.A).map { it.slug }).containsExactly(
+            "side_delt_fly", "tricep_extension", "back_extension",
+        ).inOrder()
+        assertThat(ExerciseCatalog.auxForSplit(Split.B).map { it.slug }).containsExactly(
+            "side_delt_fly", "bicep_curl", "back_extension",
+        ).inOrder()
+        assertThat(ExerciseCatalog.auxForSplit(Split.C).map { it.slug }).containsExactly(
+            "side_delt_fly", "tricep_extension", "bicep_curl",
+        ).inOrder()
+    }
+
+    @Test
+    fun `aux movements carry a default starting weight and step in 2 kg`() {
+        ExerciseCatalog.all.filter { it.category == Category.AUX }.forEach {
+            assertThat(it.weightStepKg).isEqualTo(2.0)
+            assertThat(it.defaultStartingWeightKg).isNotNull()
         }
     }
 }

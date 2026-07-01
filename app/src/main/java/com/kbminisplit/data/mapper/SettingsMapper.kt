@@ -8,8 +8,13 @@ import com.kbminisplit.domain.model.OnboardingDefaults
 import com.kbminisplit.domain.progression.KbBumpSnooze
 import java.time.YearMonth
 
+// Only the A/B/C strength lifts are onboarded and therefore expected to have a
+// starting-weight row. KB is a single flow weight; auxiliary movements fall back
+// to their own default and are never part of onboarding.
+private val StrengthCategories = setOf(Category.A, Category.B, Category.C)
+
 private val ExpectedStartingSlugs: Set<String> =
-    ExerciseCatalog.all.filter { it.category != Category.KB }.map { it.slug }.toSet()
+    ExerciseCatalog.all.filter { it.category in StrengthCategories }.map { it.slug }.toSet()
 
 /**
  * Compose [OnboardingDefaults] from the persisted user settings + per-movement

@@ -57,6 +57,16 @@ class InProgressRepository @Inject constructor(
         )
     }
 
+    /**
+     * Append sets to the current in-progress session without disturbing existing
+     * rows. Used to add the auxiliary block on demand after the main workout.
+     * Aux slugs differ from the main rows, so the unique
+     * `(exerciseSlug, setIndex, isPriming)` index is not violated.
+     */
+    suspend fun addSets(sets: List<SetEntry>) {
+        inProgressDao.upsertSets(sets.map { it.toInProgressEntity() })
+    }
+
     suspend fun updateSetState(
         exerciseSlug: String,
         setIndex: Int,
