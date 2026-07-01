@@ -1,5 +1,6 @@
 package com.kbminisplit.data.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -17,4 +18,6 @@ data class SessionEntity(
     val feedback: String,
     val kbWeightKg: Double,
     val completedAt: Long,
+    @ColumnInfo(defaultValue = "NULL")
+    val bodyweightKg: Double? = null,
 )

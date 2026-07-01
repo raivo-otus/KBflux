@@ -47,7 +47,7 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         const val DB_NAME = "kbminisplit.db"
-        const val DB_VERSION = 5
+        const val DB_VERSION = 6
 
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -84,6 +84,18 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("UPDATE session SET feedback = 'Green' WHERE feedback = 'Ideal session'")
+            }
+        }
+
+        // Bodyweight tracking for assisted movements (e.g. Assisted Dips). Adds the
+        // current weekly bodyweight + its timestamp to user_settings, and a
+        // per-session bodyweight snapshot (mirroring kbWeightKg) to session. All
+        // nullable — existing rows keep NULL until the next check-in.
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE user_settings ADD COLUMN bodyweightKg REAL DEFAULT NULL")
+                db.execSQL("ALTER TABLE user_settings ADD COLUMN bodyweightLoggedAt INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE session ADD COLUMN bodyweightKg REAL DEFAULT NULL")
             }
         }
     }

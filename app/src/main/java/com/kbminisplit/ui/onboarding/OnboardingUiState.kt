@@ -45,10 +45,12 @@ data class OnboardingUiState(
 
     companion object {
         // Only the A/B/C strength lifts are onboarded — KB uses a single flow
-        // weight and auxiliary movements fall back to their own defaults.
+        // weight, and movements with a defaultStartingWeightKg fallback (auxiliary
+        // work, Assisted Dips) derive their first weight from that fallback instead.
         val StrengthExercises: List<Exercise> =
             ExerciseCatalog.all.filter {
-                it.category == Category.A || it.category == Category.B || it.category == Category.C
+                (it.category == Category.A || it.category == Category.B || it.category == Category.C) &&
+                    it.defaultStartingWeightKg == null
             }
 
         val TargetRepsRange = 1..20

@@ -36,6 +36,7 @@ fun SessionEntity.toDomain(sets: List<SetEntryEntity>): Session = Session(
     feedback = feedback.toEnumOrDefault(Feedback.Green),
     kbWeightKg = kbWeightKg,
     sets = sets.map { it.toDomain() },
+    bodyweightKg = bodyweightKg,
 )
 
 fun SessionWithSets.toDomain(): Session = session.toDomain(sets)
@@ -46,4 +47,5 @@ fun Session.toEntity(completedAt: Long): SessionEntity = SessionEntity(
     feedback = feedback.name,
     kbWeightKg = kbWeightKg,
     completedAt = completedAt,
+    bodyweightKg = bodyweightKg,
 )

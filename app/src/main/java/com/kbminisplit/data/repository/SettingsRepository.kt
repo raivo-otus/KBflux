@@ -14,6 +14,9 @@ import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Latest bodyweight check-in: the value and when it was logged (both null until first entry). */
+data class BodyweightState(val kg: Double?, val loggedAtMillis: Long?)
+
 @Singleton
 class SettingsRepository @Inject constructor(
     private val settingsDao: SettingsDao,
@@ -39,6 +42,10 @@ class SettingsRepository @Inject constructor(
 
     fun observeHapticLevel(): Flow<Int> =
         settingsDao.observe().map { it?.hapticLevel ?: 1 }
+
+    /** Latest weekly bodyweight check-in (value + timestamp), null until first entry. */
+    fun observeBodyweight(): Flow<BodyweightState> =
+        settingsDao.observe().map { BodyweightState(it?.bodyweightKg, it?.bodyweightLoggedAt) }
 
     suspend fun saveOnboarding(defaults: OnboardingDefaults) {
         val existing = settingsDao.get()
@@ -93,6 +100,21 @@ class SettingsRepository @Inject constructor(
 
     suspend fun updateStartingWeight(slug: String, weightKg: Double) {
         settingsDao.upsertStartingWeights(listOf(StartingWeightEntity(slug, weightKg)))
+    }
+
+    /** Record a weekly bodyweight check-in. Stamped time drives the staleness prompt. */
+    suspend fun updateBodyweight(weightKg: Double) {
+        val existing = settingsDao.get() ?: UserSettingsEntity(
+            onboardedAt = null,
+            kbWeightKg = null,
+            startingTargetReps = null,
+            standardMaxReps = null,
+            kbBumpSnoozedAtMonth = null,
+            kbBumpSnoozeSessionCount = null,
+        )
+        settingsDao.upsert(
+            existing.copy(bodyweightKg = weightKg, bodyweightLoggedAt = clock.millis()),
+        )
     }
 
     suspend fun setDarkMode(enabled: Boolean?) {
