@@ -4,24 +4,33 @@ import com.kbminisplit.domain.model.Exercise
 import com.kbminisplit.domain.model.ExerciseCatalog
 import com.kbminisplit.domain.model.ExerciseMechanic
 import com.kbminisplit.domain.model.SetEntry
+import com.kbminisplit.domain.model.Split
 import com.kbminisplit.domain.progression.effectiveLoadKg
 import com.kbminisplit.ui.tracker.KbBlock
 import com.kbminisplit.ui.tracker.KbMovementLabel
 import com.kbminisplit.ui.tracker.SetCell
 import com.kbminisplit.ui.tracker.StrengthMovementRow
 
-fun List<SetEntry>.toKbBlock(): KbBlock {
-    val circuits = filter { it.exerciseSlug == ExerciseCatalog.KbFlow.slug }
+/** The circuit cells tracked under the [ExerciseCatalog.KbFlow] sentinel slug. */
+fun List<SetEntry>.toKbCircuits(): List<SetCell> =
+    filter { it.exerciseSlug == ExerciseCatalog.KbFlow.slug }
         .sortedBy { it.setIndex }
         .map { it.toCell() }
-    
-    return KbBlock(
-        movements = ExerciseCatalog.kbFlowMovements.map {
-            KbMovementLabel(exercise = it, repsLabel = kbRepsLabel(it.slug))
+
+/**
+ * KB section for the Tracker: the split's themed movements labelled with the
+ * positional [repScheme] (spec §2.2, ramped per §9.3), plus the circuit cells.
+ */
+fun List<SetEntry>.toKbBlock(split: Split, repScheme: List<Int>): KbBlock =
+    KbBlock(
+        movements = ExerciseCatalog.kbFlowForSplit(split).zip(repScheme) { exercise, reps ->
+            KbMovementLabel(
+                exercise = exercise,
+                repsLabel = if (exercise.isPerSide) "$reps/side" else "$reps",
+            )
         },
-        circuits = circuits,
+        circuits = toKbCircuits(),
     )
-}
 
 fun List<SetEntry>.toStrengthRows(
     exercises: List<Exercise>,
@@ -56,14 +65,3 @@ fun SetEntry.toCell() = SetCell(
     isPriming = isPriming,
     status = status,
 )
-
-/**
- * Fixed KB rep prescriptions (spec §2.2). These are program constants, not
- * user-tracked, so they live in the UI layer rather than on `Exercise`.
- */
-private fun kbRepsLabel(slug: String): String = when (slug) {
-    ExerciseCatalog.Swings.slug -> "32"
-    ExerciseCatalog.CleanAndPress.slug -> "16/side"
-    ExerciseCatalog.GobletSquat.slug -> "8"
-    else -> ""
-}

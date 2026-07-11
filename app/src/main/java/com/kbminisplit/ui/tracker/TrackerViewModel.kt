@@ -19,7 +19,9 @@ import com.kbminisplit.domain.model.SetStatus
 import com.kbminisplit.domain.model.Split
 import com.kbminisplit.domain.progression.KbBumpSnooze
 import com.kbminisplit.domain.progression.isBodyweightStale
+import com.kbminisplit.domain.progression.kbRepScheme
 import com.kbminisplit.domain.progression.movementOrder
+import com.kbminisplit.domain.progression.nextKbWeight
 import com.kbminisplit.domain.progression.nextSplit
 import com.kbminisplit.domain.progression.getPrescription
 import com.kbminisplit.domain.progression.shouldPromptKbBump
@@ -52,7 +54,7 @@ sealed interface TrackerEvent {
  *  - `InProgressRepository.observe()` — live button state (mid-session persistence)
  *  - `SessionRepository.observeAll()` — committed history (feeds progression)
  *  - `SettingsRepository.observeOnboardingDefaults()` + `observeKbBumpSnooze()` —
- *    onboarding baseline + monthly KB-bump snooze
+ *    onboarding baseline + KB-bump snooze
  *
  * On init it bootstraps an in-progress row if one is missing or stale (different
  * date or different expected split). After a session is committed the same
@@ -194,16 +196,10 @@ class TrackerViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val defaults = defaultsFlow.value ?: return@launch
-                val newKg = defaults.kbWeightKg + KB_BUMP_STEP_KG
+                val newKg = nextKbWeight(defaults.kbWeightKg) ?: return@launch
+                // No snooze stamp needed: the new weight has no completed sessions
+                // yet, which suppresses the prompt until 3 months pass again.
                 settingsRepository.bumpKbWeight(newKg)
-                // Snooze stamp prevents the prompt from re-appearing immediately on
-                // the fresh in-progress (history hasn't recorded a session this month yet).
-                settingsRepository.saveKbBumpSnooze(
-                    KbBumpSnooze(
-                        snoozedAtMonth = YearMonth.from(LocalDate.now(clock)),
-                        sessionCountAtSnooze = historyFlow.value.size,
-                    ),
-                )
                 inProgressRepository.clear()
                 bootstrapIfNeeded()
             } finally {
@@ -299,7 +295,7 @@ class TrackerViewModel @Inject constructor(
         val kbWeight = defaults.kbWeightKg
         val (m1, m2) = movementOrder(history, split)
         return buildList {
-            // KB Flow: one row per completed circuit (spec §2.2). The 5 movement
+            // KB Flow: one row per completed circuit (spec §2.2). The movement
             // labels are display-only — set tracking is at the circuit level.
             repeat(KB_ROUNDS) { round ->
                 add(
@@ -364,7 +360,9 @@ class TrackerViewModel @Inject constructor(
         auxSkipped: Boolean,
     ): TrackerUiState.Ready {
         val (m1, m2) = movementOrder(history, snapshot.split)
-        val kbBlock = snapshot.sets.toKbBlock()
+        // Rep scheme keys on the snapshot weight so the labels always agree with
+        // the "KB Flow · X kg" header, even mid-edit.
+        val kbBlock = snapshot.sets.toKbBlock(snapshot.split, kbRepScheme(history, snapshot.kbWeightKg))
         val strengthRows = snapshot.sets.toStrengthRows(listOf(m1, m2), bodyweight.kg)
 
         val kbAllResolved = kbBlock.circuits.all { it.status != SetStatus.Pending }
@@ -381,13 +379,17 @@ class TrackerViewModel @Inject constructor(
         val feedbackReady = (mainResolved && auxSkipped) || auxResolved
 
         val noKbTouched = kbBlock.circuits.all { it.status == SetStatus.Pending }
+        // Prompt keys on the settings weight (not the snapshot) so accepting a
+        // bump hides it immediately, before the in-progress rebuild lands.
+        val nextKb = nextKbWeight(defaults.kbWeightKg)
         val kbBump = if (
             noKbTouched &&
-            shouldPromptKbBump(history, snapshot.date, snooze)
+            nextKb != null &&
+            shouldPromptKbBump(history, snapshot.date, defaults.kbWeightKg, snooze)
         ) {
             KbBumpState(
                 currentKg = defaults.kbWeightKg,
-                targetKg = defaults.kbWeightKg + KB_BUMP_STEP_KG,
+                targetKg = nextKb,
             )
         } else {
             null
@@ -421,7 +423,6 @@ class TrackerViewModel @Inject constructor(
         prime.status != SetStatus.Pending && working.all { it.status != SetStatus.Pending }
 
     companion object {
-        const val KB_BUMP_STEP_KG = 2.0
         const val KB_ROUNDS = 3
         const val STRENGTH_WORKING_SETS = 3
     }

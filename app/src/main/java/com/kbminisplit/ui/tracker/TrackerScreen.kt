@@ -358,7 +358,7 @@ private fun KbBumpBanner(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "It's been a month — bump KB to ${formatKg(bump.targetKg)} kg?",
+                text = "It's been 3 months — bump KB to ${formatKg(bump.targetKg)} kg?",
                 style = MaterialTheme.typography.bodyLarge,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

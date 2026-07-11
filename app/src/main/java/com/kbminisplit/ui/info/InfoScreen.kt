@@ -60,14 +60,19 @@ fun InfoScreen(
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "The app follows a structured rotation:\n\n" +
-                        "• Every session starts with a KB Flow: 3 circuits of Swings, Clean & Press, and Goblet Squats.\n" +
+                        "• Every session starts with a KB Flow of 3 circuits, themed to the day: " +
+                        "Swings, High Pulls, and Goblet Squats on Pull days; " +
+                        "Swings, Clean & Press, and Goblet Squats on Push days; " +
+                        "Swings, Goblet Squats, and Snatch on Leg days.\n" +
                         "• Followed by a strength split: A (Pull), B (Push), or C (Squat).\n\n" +
                         "Progression is automatic. Complete all sets to increase target reps next time. " +
                         (onboarding?.let { defaults ->
                             "Once you hit your target max (${defaults.standardMaxReps} reps), " +
                                     "weight increases and reps reset to 8. "
                         } ?: "Once you hit 16 reps, weight increases and reps reset to 8. ") +
-                        "Kettlebell weight is prompted for a bump once a month.",
+                        "Every 3 months you're prompted to move up to the next kettlebell " +
+                        "(8-10-12-16-20-24-28-32 kg); after a bump, flow reps ramp back up " +
+                        "to the full 32/16/8 over nine workouts.",
                 style = MaterialTheme.typography.bodyLarge
             )
 

@@ -6,10 +6,11 @@ import java.time.YearMonth
 
 /**
  * Snooze state persisted in user settings. Set when the user taps "not yet" on
- * the KB bump prompt. Cleared after the prompt is honored ("bump") or
- * naturally aged out when the calendar month rolls past [snoozedAtMonth].
+ * the KB bump prompt. Cleared after the prompt is honored ("bump").
  *
- * @param snoozedAtMonth calendar month in which the snooze occurred
+ * @param snoozedAtMonth calendar month in which the snooze occurred. Retained
+ *   for storage compatibility (and debugging); suppression is purely
+ *   session-count based.
  * @param sessionCountAtSnooze total session count at the moment of the snooze
  */
 data class KbBumpSnooze(
@@ -20,35 +21,32 @@ data class KbBumpSnooze(
 /**
  * Should the Tracker show the KB-bump prompt today? Per spec §9.3:
  *
- *  - Fire on the first session of a new calendar month, *if* the prior calendar
- *    month contained at least one completed session.
- *  - If the user previously tapped "not yet" within the current month, suppress
- *    the prompt until two more sessions have been logged since that snooze.
- *  - A month change naturally invalidates any prior-month snooze.
+ *  - Fire once the current KB weight has been in use for 3 months, measured
+ *    from the first session of the trailing run of history at that weight.
+ *  - Never fire at the top of the ladder (no bigger bell to offer), with an
+ *    empty history, or before the current weight has a completed session.
+ *  - Once due, the prompt persists every session until the user accepts or
+ *    snoozes; "not yet" suppresses it until two more sessions have been logged.
+ *
+ * Accepting a bump needs no snooze stamp: the new weight's trailing run is
+ * empty, which suppresses the prompt structurally until 3 months pass again.
  *
  * `history` is expected in chronological order.
  */
 fun shouldPromptKbBump(
     history: List<Session>,
     today: LocalDate,
+    currentKbWeightKg: Double,
     snooze: KbBumpSnooze? = null,
 ): Boolean {
-    val thisMonth = YearMonth.from(today)
+    if (nextKbWeight(currentKbWeightKg) == null) return false
 
-    // A snooze within the current month suppresses the prompt unless enough
-    // sessions have passed. This check takes priority.
-    if (snooze != null && snooze.snoozedAtMonth == thisMonth) {
-        val sessionsSinceSnooze = history.size - snooze.sessionCountAtSnooze
-        return sessionsSinceSnooze >= 2
-    }
+    // Sessions completed at the current weight since the last change; empty
+    // covers both a blank history and a freshly changed weight.
+    val run = history.takeLastWhile { it.kbWeightKg == currentKbWeightKg }
+    if (run.isEmpty()) return false
+    if (run.first().date.plusMonths(3).isAfter(today)) return false
 
-    // Standard prompt: first session of the month, provided the prior month
-    // had at least one session.
-    val hasSessionThisMonth = history.asReversed().asSequence()
-        .takeWhile { YearMonth.from(it.date) == thisMonth }
-        .any()
-    if (hasSessionThisMonth) return false
-
-    val prevMonth = thisMonth.minusMonths(1)
-    return history.any { YearMonth.from(it.date) == prevMonth }
+    if (snooze != null && history.size - snooze.sessionCountAtSnooze < 2) return false
+    return true
 }

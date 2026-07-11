@@ -23,9 +23,9 @@ data class KbMovementLabel(
 )
 
 /**
- * The KB Flow block: 5 movements shown as labels for reference, and three
- * round buttons — one per circuit (spec §2.2). Set tracking is at the circuit
- * level, not per movement.
+ * The KB Flow block: the day's movements shown as labels for reference, and
+ * three round buttons — one per circuit (spec §2.2). Set tracking is at the
+ * circuit level, not per movement.
  */
 data class KbBlock(
     val movements: List<KbMovementLabel>,
@@ -78,7 +78,7 @@ sealed interface TrackerUiState {
     ) : TrackerUiState
 }
 
-/** State of the monthly KB-bump prompt (spec §9.3). */
+/** State of the 3-month KB ladder-bump prompt (spec §9.3). */
 data class KbBumpState(
     val currentKg: Double,
     val targetKg: Double,

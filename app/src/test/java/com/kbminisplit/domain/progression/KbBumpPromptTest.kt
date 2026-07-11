@@ -1,6 +1,7 @@
 package com.kbminisplit.domain.progression
 
 import com.google.common.truth.Truth.assertThat
+import com.kbminisplit.domain.model.Session
 import com.kbminisplit.domain.model.Split
 import org.junit.Test
 import java.time.LocalDate
@@ -8,106 +9,114 @@ import java.time.YearMonth
 
 class KbBumpPromptTest {
 
+    private fun kbSession(date: LocalDate, kbWeight: Double = 16.0): Session =
+        strengthSession(date, Split.A, kbWeight = kbWeight, m1Weight = 50.0, m1Reps = 8)
+
     @Test
     fun `no history never prompts`() {
         val today = LocalDate.of(2026, 5, 1)
 
-        assertThat(shouldPromptKbBump(emptyList(), today)).isFalse()
+        assertThat(shouldPromptKbBump(emptyList(), today, currentKbWeightKg = 16.0)).isFalse()
     }
 
     @Test
-    fun `previous month with no sessions does not prompt`() {
-        // History only contains sessions further back than the previous month.
+    fun `less than 3 months at current weight does not prompt`() {
         val history = listOf(
-            strengthSession(LocalDate.of(2026, 3, 28), Split.A, m1Weight = 50.0, m1Reps = 8),
+            kbSession(LocalDate.of(2026, 3, 1)),
+            kbSession(LocalDate.of(2026, 4, 15)),
+        )
+        val today = LocalDate.of(2026, 5, 15)
+
+        assertThat(shouldPromptKbBump(history, today, currentKbWeightKg = 16.0)).isFalse()
+    }
+
+    @Test
+    fun `prompts once the current weight has been in use for 3 months`() {
+        val history = listOf(
+            kbSession(LocalDate.of(2026, 2, 1)),
+            kbSession(LocalDate.of(2026, 3, 15)),
         )
         val today = LocalDate.of(2026, 5, 1)
 
-        assertThat(shouldPromptKbBump(history, today)).isFalse()
+        assertThat(shouldPromptKbBump(history, today, currentKbWeightKg = 16.0)).isTrue()
     }
 
     @Test
-    fun `first session of new month with prior month sessions prompts`() {
+    fun `day before the 3-month boundary does not prompt`() {
         val history = listOf(
-            strengthSession(LocalDate.of(2026, 4, 28), Split.A, m1Weight = 50.0, m1Reps = 8),
-            strengthSession(LocalDate.of(2026, 4, 30), Split.B, m1Weight = 60.0, m1Reps = 8),
+            kbSession(LocalDate.of(2026, 2, 1)),
+        )
+        val today = LocalDate.of(2026, 4, 30)
+
+        assertThat(shouldPromptKbBump(history, today, currentKbWeightKg = 16.0)).isFalse()
+    }
+
+    @Test
+    fun `freshly changed weight with no completed session does not prompt`() {
+        // All history is at the old weight; the current weight's run is empty.
+        val history = listOf(
+            kbSession(LocalDate.of(2025, 12, 1), kbWeight = 16.0),
+            kbSession(LocalDate.of(2026, 1, 15), kbWeight = 16.0),
         )
         val today = LocalDate.of(2026, 5, 1)
 
-        assertThat(shouldPromptKbBump(history, today)).isTrue()
+        assertThat(shouldPromptKbBump(history, today, currentKbWeightKg = 20.0)).isFalse()
     }
 
     @Test
-    fun `second session of the month does not prompt without snooze`() {
+    fun `three-month clock starts at the trailing run, not the first session ever`() {
+        // Old-weight sessions since January must not count toward the 16 kg run
+        // that only started in March.
         val history = listOf(
-            strengthSession(LocalDate.of(2026, 4, 28), Split.A, m1Weight = 50.0, m1Reps = 8),
-            strengthSession(LocalDate.of(2026, 5, 1), Split.B, m1Weight = 60.0, m1Reps = 8),
+            kbSession(LocalDate.of(2026, 1, 1), kbWeight = 12.0),
+            kbSession(LocalDate.of(2026, 1, 20), kbWeight = 12.0),
+            kbSession(LocalDate.of(2026, 3, 1), kbWeight = 16.0),
         )
-        val today = LocalDate.of(2026, 5, 3)
 
-        assertThat(shouldPromptKbBump(history, today)).isFalse()
+        assertThat(
+            shouldPromptKbBump(history, LocalDate.of(2026, 5, 15), currentKbWeightKg = 16.0),
+        ).isFalse()
+        assertThat(
+            shouldPromptKbBump(history, LocalDate.of(2026, 6, 15), currentKbWeightKg = 16.0),
+        ).isTrue()
     }
 
     @Test
-    fun `snoozed prompt is suppressed for the next session`() {
-        // Snooze fired before the 5/1 session was logged. Count at snooze = 2 (the April sessions).
+    fun `top of the ladder never prompts`() {
         val history = listOf(
-            strengthSession(LocalDate.of(2026, 4, 28), Split.A, m1Weight = 50.0, m1Reps = 8),
-            strengthSession(LocalDate.of(2026, 4, 30), Split.B, m1Weight = 60.0, m1Reps = 8),
-            strengthSession(LocalDate.of(2026, 5, 1), Split.C, m1Weight = 80.0, m1Reps = 8),
+            kbSession(LocalDate.of(2025, 6, 1), kbWeight = 32.0),
+        )
+        val today = LocalDate.of(2026, 5, 1)
+
+        assertThat(shouldPromptKbBump(history, today, currentKbWeightKg = 32.0)).isFalse()
+        assertThat(shouldPromptKbBump(history, today, currentKbWeightKg = 40.0)).isFalse()
+    }
+
+    @Test
+    fun `snoozed prompt is suppressed until two more sessions are logged`() {
+        val history = listOf(
+            kbSession(LocalDate.of(2026, 1, 2)),
+            kbSession(LocalDate.of(2026, 1, 28)),
+            kbSession(LocalDate.of(2026, 5, 1)),
         )
         val snooze = KbBumpSnooze(YearMonth.of(2026, 5), sessionCountAtSnooze = 2)
         val today = LocalDate.of(2026, 5, 3)
 
-        // One session has completed since the snooze (5/1). We need two.
-        assertThat(shouldPromptKbBump(history, today, snooze)).isFalse()
+        // One session since the snooze; we need two.
+        assertThat(shouldPromptKbBump(history, today, 16.0, snooze)).isFalse()
     }
 
     @Test
     fun `snoozed prompt re-fires after two more sessions logged`() {
         val history = listOf(
-            strengthSession(LocalDate.of(2026, 4, 28), Split.A, m1Weight = 50.0, m1Reps = 8),
-            strengthSession(LocalDate.of(2026, 4, 30), Split.B, m1Weight = 60.0, m1Reps = 8),
-            strengthSession(LocalDate.of(2026, 5, 1), Split.C, m1Weight = 80.0, m1Reps = 8),
-            strengthSession(LocalDate.of(2026, 5, 3), Split.A, m1Weight = 50.0, m1Reps = 8),
+            kbSession(LocalDate.of(2026, 1, 2)),
+            kbSession(LocalDate.of(2026, 1, 28)),
+            kbSession(LocalDate.of(2026, 5, 1)),
+            kbSession(LocalDate.of(2026, 5, 3)),
         )
         val snooze = KbBumpSnooze(YearMonth.of(2026, 5), sessionCountAtSnooze = 2)
         val today = LocalDate.of(2026, 5, 5)
 
-        assertThat(shouldPromptKbBump(history, today, snooze)).isTrue()
-    }
-
-    @Test
-    fun `month rollover invalidates a prior-month snooze`() {
-        val history = listOf(
-            strengthSession(LocalDate.of(2026, 4, 28), Split.A, m1Weight = 50.0, m1Reps = 8),
-            strengthSession(LocalDate.of(2026, 5, 1), Split.B, m1Weight = 60.0, m1Reps = 8),
-        )
-        val staleSnooze = KbBumpSnooze(YearMonth.of(2026, 5), sessionCountAtSnooze = 2)
-        val today = LocalDate.of(2026, 6, 1)
-
-        assertThat(shouldPromptKbBump(history, today, staleSnooze)).isTrue()
-    }
-
-    @Test
-    fun `snooze in a different month still respects the first-of-month rule`() {
-        // Snooze in April; today is June; May had zero sessions → still don't fire.
-        val history = listOf(
-            strengthSession(LocalDate.of(2026, 4, 5), Split.A, m1Weight = 50.0, m1Reps = 8),
-        )
-        val staleSnooze = KbBumpSnooze(YearMonth.of(2026, 4), sessionCountAtSnooze = 1)
-        val today = LocalDate.of(2026, 6, 1)
-
-        assertThat(shouldPromptKbBump(history, today, staleSnooze)).isFalse()
-    }
-
-    @Test
-    fun `prompts on first session ever in a brand-new month after one prior month session`() {
-        val history = listOf(
-            strengthSession(LocalDate.of(2026, 1, 30), Split.A, m1Weight = 50.0, m1Reps = 8),
-        )
-        val today = LocalDate.of(2026, 2, 2)
-
-        assertThat(shouldPromptKbBump(history, today)).isTrue()
+        assertThat(shouldPromptKbBump(history, today, 16.0, snooze)).isTrue()
     }
 }
