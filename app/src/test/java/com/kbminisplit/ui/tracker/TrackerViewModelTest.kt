@@ -328,8 +328,8 @@ class TrackerViewModelTest {
 
     @Test
     fun `kbBump is non-null when prompt is due and no KB sets touched`() {
-        // Previous calendar month had a session, current month has none → prompt due.
-        historyFlow.value = listOf(sessionAt(today.minusMonths(1).withDayOfMonth(10), Split.C))
+        // The current weight has been in use for 3 months → prompt due.
+        historyFlow.value = listOf(sessionAt(today.minusMonths(3), Split.C))
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
@@ -337,13 +337,14 @@ class TrackerViewModelTest {
             val ready = vm.state.value as TrackerUiState.Ready
             assertThat(ready.kbBump).isNotNull()
             assertThat(ready.kbBump!!.currentKg).isEqualTo(16.0)
-            assertThat(ready.kbBump!!.targetKg).isEqualTo(18.0)
+            // Target is the next kettlebell on the ladder, not a fixed step.
+            assertThat(ready.kbBump!!.targetKg).isEqualTo(20.0)
         }
     }
 
     @Test
     fun `kbBump is null once any KB set has been touched`() {
-        historyFlow.value = listOf(sessionAt(today.minusMonths(1).withDayOfMonth(10), Split.C))
+        historyFlow.value = listOf(sessionAt(today.minusMonths(3), Split.C))
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
@@ -355,6 +356,55 @@ class TrackerViewModelTest {
 
             val updated = vm.state.value as TrackerUiState.Ready
             assertThat(updated.kbBump).isNull()
+        }
+    }
+
+    @Test
+    fun `kb flow movements are themed to the split with positional rep labels`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            // Fresh install bootstraps split A; weight never changed → full scheme.
+            val readyA = vm.state.value as TrackerUiState.Ready
+            assertThat(readyA.kbBlock.movements.map { it.exercise.slug }).containsExactly(
+                ExerciseCatalog.Swings.slug,
+                ExerciseCatalog.HighPull.slug,
+                ExerciseCatalog.GobletSquat.slug,
+            ).inOrder()
+            assertThat(readyA.kbBlock.movements.map { it.repsLabel })
+                .containsExactly("32", "16/side", "8").inOrder()
+
+            vm.forceSplit(Split.C)
+            advanceUntilIdle()
+
+            val readyC = vm.state.value as TrackerUiState.Ready
+            assertThat(readyC.kbBlock.movements.map { it.exercise.slug }).containsExactly(
+                ExerciseCatalog.Swings.slug,
+                ExerciseCatalog.GobletSquat.slug,
+                ExerciseCatalog.Snatch.slug,
+            ).inOrder()
+            assertThat(readyC.kbBlock.movements.map { it.repsLabel })
+                .containsExactly("32", "16", "8/side").inOrder()
+        }
+    }
+
+    @Test
+    fun `kb rep labels ramp while a recent weight change settles in`() {
+        // Two sessions at 12 kg, then one at the current 16 kg → lowest ramp stage.
+        historyFlow.value = listOf(
+            sessionAt(today.minusDays(9), Split.A, kbWeight = 12.0),
+            sessionAt(today.minusDays(7), Split.B, kbWeight = 12.0),
+            sessionAt(today.minusDays(5), Split.C, kbWeight = 16.0),
+        )
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            val ready = vm.state.value as TrackerUiState.Ready
+            assertThat(ready.split).isEqualTo(Split.A)
+            assertThat(ready.kbBlock.movements.map { it.repsLabel })
+                .containsExactly("20", "10/side", "5").inOrder()
         }
     }
 
@@ -468,16 +518,12 @@ class TrackerViewModelTest {
     // ---- KB bump actions ----
 
     @Test
-    fun `accepting KB bump persists new weight and snoozes against re-prompt`() {
-        historyFlow.value = listOf(sessionAt(today.minusMonths(1).withDayOfMonth(10), Split.C))
+    fun `accepting KB bump persists the next ladder weight and hides the prompt`() {
+        historyFlow.value = listOf(sessionAt(today.minusMonths(3), Split.C))
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
 
-            var capturedSnooze: KbBumpSnooze? = null
-            coEvery { settingsRepository.saveKbBumpSnooze(any()) } answers {
-                capturedSnooze = firstArg()
-            }
             coEvery { settingsRepository.bumpKbWeight(any()) } answers {
                 defaultsFlow.value = defaultsFlow.value!!.copy(kbWeightKg = firstArg()); testDispatcher.scheduler.runCurrent()
             }
@@ -485,11 +531,18 @@ class TrackerViewModelTest {
             vm.onKbBumpAccept()
             advanceUntilIdle()
 
-            coVerify { settingsRepository.bumpKbWeight(18.0) }
-            assertThat(capturedSnooze?.snoozedAtMonth).isEqualTo(YearMonth.from(today))
-            assertThat(capturedSnooze?.sessionCountAtSnooze).isEqualTo(1)
+            coVerify { settingsRepository.bumpKbWeight(20.0) }
+            // No snooze stamp: the new weight has no completed sessions, which
+            // suppresses the prompt structurally.
+            coVerify(exactly = 0) { settingsRepository.saveKbBumpSnooze(any()) }
             // Bootstrap re-ran and the new in-progress carries the bumped weight.
-            assertThat(inProgressFlow.value!!.kbWeightKg).isEqualTo(18.0)
+            assertThat(inProgressFlow.value!!.kbWeightKg).isEqualTo(20.0)
+
+            val ready = vm.state.value as TrackerUiState.Ready
+            assertThat(ready.kbBump).isNull()
+            // Freshly bumped weight starts the rep ramp at its lowest stage.
+            assertThat(ready.kbBlock.movements.map { it.repsLabel })
+                .containsExactly("20", "10/side", "5").inOrder()
         }
     }
 
@@ -668,11 +721,11 @@ class TrackerViewModelTest {
 
     // ---- helpers ----
 
-    private fun sessionAt(date: LocalDate, split: Split) = Session(
+    private fun sessionAt(date: LocalDate, split: Split, kbWeight: Double = 16.0) = Session(
         date = date,
         split = split,
         feedback = Feedback.Green,
-        kbWeightKg = 16.0,
+        kbWeightKg = kbWeight,
         sets = emptyList(),
     )
 

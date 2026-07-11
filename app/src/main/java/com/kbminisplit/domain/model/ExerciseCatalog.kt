@@ -3,11 +3,13 @@ package com.kbminisplit.domain.model
 object ExerciseCatalog {
     // KB flow movements — displayed as reference rows on the Tracker (rep schemes
     // come from spec §2.2). They are *not* individually tracked: a session
-    // records 3 circuit completions under [KbFlow] below, not 5×3 per-movement
-    // sets.
+    // records 3 circuit completions under [KbFlow] below, not per-movement
+    // sets. Which three appear depends on the day's split ([kbFlowForSplit]).
     val Swings = Exercise("swings", "Swings", Category.KB, isPerSide = false, weightStepKg = 2.0)
     val CleanAndPress = Exercise("clean_and_press", "Clean & Press", Category.KB, isPerSide = true, weightStepKg = 2.0)
     val GobletSquat = Exercise("goblet_squat", "Goblet Squat", Category.KB, isPerSide = false, weightStepKg = 2.0)
+    val HighPull = Exercise("high_pull", "High Pull", Category.KB, isPerSide = true, weightStepKg = 2.0)
+    val Snatch = Exercise("snatch", "Snatch", Category.KB, isPerSide = true, weightStepKg = 2.0)
 
     // Sentinel KB-flow exercise. One `set_entry` row per completed circuit
     // (3 per session) uses this slug. KB progression is single-weight (§9.3),
@@ -81,7 +83,7 @@ object ExerciseCatalog {
     )
 
     val all: List<Exercise> = listOf(
-        Swings, CleanAndPress, GobletSquat, KbFlow,
+        Swings, CleanAndPress, GobletSquat, HighPull, Snatch, KbFlow,
         // Ohp is retained (no longer prescribed) so historical OHP sessions still
         // resolve via bySlug; AssistedDip is its Split B replacement.
         LatPulldown, BarbellRow, Bench, Ohp, AssistedDip, HighBarSquat, RomanianDeadlift,
@@ -90,8 +92,16 @@ object ExerciseCatalog {
         SideDeltFly, TricepExtension, BackExtension, BicepCurl,
     )
 
-    /** Reference labels for the KB section header — not used for set tracking. */
-    val kbFlowMovements: List<Exercise> = listOf(Swings, CleanAndPress, GobletSquat)
+    /**
+     * The day's KB flow movements, themed to the split (spec §2.2). Reference
+     * labels for the KB section header — not used for set tracking. Reps are
+     * positional (32/16/8 at full scheme) regardless of which movements appear.
+     */
+    fun kbFlowForSplit(split: Split): List<Exercise> = when (split) {
+        Split.A -> listOf(Swings, HighPull, GobletSquat)
+        Split.B -> listOf(Swings, CleanAndPress, GobletSquat)
+        Split.C -> listOf(Swings, GobletSquat, Snatch)
+    }
 
     fun bySlug(slug: String): Exercise? = all.firstOrNull { it.slug == slug }
 

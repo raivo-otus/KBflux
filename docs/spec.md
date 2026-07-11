@@ -24,18 +24,36 @@ The commute to the gym. **Not tracked in the app.**
 
 ### 2.2 KB Flow (every session)
 
-A circuit of three kettlebell movements, repeated three times back-to-back:
+A circuit of three kettlebell movements, repeated three times back-to-back.
+The movements are themed to the day's split; the rep scheme is positional
+(first movement 32, second 16, third 8 at the full scheme), with per-side
+movements annotated "/side":
 
-| Movement              | Reps         |
-| --------------------- | ------------ |
-| Swings                | 32           |
-| Clean & Press         | 16 per side  |
-| Goblet Squat          | 8            |
+| Split     | First      | Second             | Third          |
+| --------- | ---------- | ------------------ | -------------- |
+| A (Pull)  | Swings 32  | High Pulls 16/side | Goblet Squat 8 |
+| B (Push)  | Swings 32  | Clean & Press 16/side | Goblet Squat 8 |
+| C (Legs)  | Swings 32  | Goblet Squat 16    | Snatch 8/side  |
 
 One kettlebell weight is used for the whole flow. (See §9.3 for KB progression.)
 
+After a weight bump the positional scheme ramps back up, advancing one stage
+per **3 completed workouts** (one full A/B/C cycle) at the new weight:
+
+| Workouts at new weight | Scheme        |
+| ---------------------- | ------------- |
+| 1–3                    | 20 / 10 / 5   |
+| 4–6                    | 24 / 12 / 6   |
+| 7–9                    | 28 / 14 / 7   |
+| 10+                    | 32 / 16 / 8   |
+
+The ramp stage is derived from history (the trailing run of sessions whose
+snapshotted KB weight equals the current weight), never persisted. Any weight
+change — bump, manual edit, or downgrade — restarts the ramp; a weight that
+has never changed (fresh installs) uses the full scheme.
+
 The Tracker records **one set per completed circuit (3 per session)**, not
-one per movement-per-round. The five movements above are reference labels in
+one per movement-per-round. The movements above are reference labels in
 the section header; the user taps a single "Circuit" button after finishing
 the whole lap.
 
@@ -80,7 +98,7 @@ Single scrollable screen, top to bottom:
 │  KB Flow · 16 kg                       │
 │                                        │
 │  Swings           ·32                  │  ← movement labels, no per-row button
-│  Clean & Press    ·16/side             │
+│  High Pulls       ·16/side             │     (themed to the split, §2.2)
 │  Goblet Squats    ·8                   │
 │                                        │
 │   Circuit 1   Circuit 2   Circuit 3    │  ← three buttons total, one per lap
@@ -218,8 +236,9 @@ so catalog rows added in later releases backfill into existing installs.
 
 The catalog carries one extra row, `kb_flow`, used as the sentinel
 `exercise_slug` for the three per-session KB-circuit rows in `set_entry`
-(§2.2). The five named KB movements remain in the catalog as display
-references but never appear in `set_entry`.
+(§2.2). The named KB movements (swings, clean & press, goblet squat, high
+pull, snatch) remain in the catalog as per-split display references but never
+appear in `set_entry`.
 
 ### 8.2 `user_settings` (singleton row, `id = 0`)
 
@@ -230,8 +249,8 @@ references but never appear in `set_entry`.
 | `kb_weight_kg`                  | REAL    | current KB weight — initial value captured at onboarding, mutated by the KB-bump prompt (§9.3); each session snapshots this at commit time |
 | `starting_target_reps`          | INTEGER | starting target reps (default 8) at onboarding   |
 | `standard_max_reps`            | INTEGER | preferred max reps for standard lifts (default 12)|
-| `kb_bump_snoozed_at_month`      | TEXT    | ISO `YYYY-MM`; set when user taps "Not yet"      |
-| `kb_bump_snooze_session_count`  | INTEGER | session count at snooze; clears after 2 sessions |
+| `kb_bump_snoozed_at_month`      | TEXT    | ISO `YYYY-MM`; set when user taps "Not yet". Retained for storage compatibility — suppression is purely session-count based (§9.3) |
+| `kb_bump_snooze_session_count`  | INTEGER | session count at snooze; suppresses the prompt for 2 sessions |
 
 ### 8.2.1 `starting_weight` (one row per strength movement)
 
@@ -339,13 +358,26 @@ If this movement has never been logged → use the onboarding starting values (w
 
 ### 9.3 KB weight progression
 
-Time-based, not performance-based. The KB flow always uses fixed rep schemes; only the weight changes.
+Time-based, not performance-based. Weight moves along the owned-bell ladder
+**8, 10, 12, 16, 20, 24, 28, 32 kg**; after each move the rep scheme ramps
+back up over nine workouts (§2.2).
 
-On the first session of a calendar month, **after** the previous calendar month contains at least one completed session, the app prompts:
+Once the current KB weight has been in use for **3 months** — measured from
+the first session of the trailing run of history at that weight — the app
+prompts:
 
-> "It's been a month — bump KB to {current + 2} kg?"
+> "It's been 3 months — bump KB to {next ladder weight} kg?"
 
-User taps yes / not yet. "Not yet" snoozes the prompt for two more sessions, then asks again. The KB weight stored on each session is whatever was active that day.
+User taps yes / not yet. Once due, the prompt persists every session until
+accepted or snoozed; "Not yet" snoozes it for two more sessions, then it asks
+again. The prompt never fires at the top of the ladder (32 kg), with an empty
+history, or before the current weight has a completed session — which is also
+why accepting needs no snooze stamp: the fresh weight's run is empty until
+3 months pass again. The KB weight stored on each session is whatever was
+active that day.
+
+Off-ladder weights (e.g. 18 kg from the pre-ladder +2 kg rule, or a free-text
+edit) simply target the next rung up.
 
 No automatic bumps without confirmation.
 
@@ -445,7 +477,7 @@ KBminisplit/
 
 These are decisions to revisit before locking, or after a first build is in hand:
 
-1. **KB bump cadence.** Calendar month is one rule; "every N sessions" might be more honest if usage is sporadic. Default to monthly; revisit if it feels wrong.
+1. **KB bump cadence.** ~~Calendar month is one rule; "every N sessions" might be more honest if usage is sporadic.~~ Resolved: 3 months at the current weight (measured from the trailing run of sessions at that weight, so sporadic use still counts real exposure), stepping along the owned-bell ladder with a rep ramp (§2.2, §9.3).
 2. **Deload / regression.** What if a movement fails repeatedly? Today: it just stalls. Should we surface a "consider deloading 10%" hint after, say, 3 consecutive failed sessions?
 3. **Time-of-day in the log.** Session is keyed by local date. Two sessions in one day are not supported (and arguably shouldn't be for this program).
 

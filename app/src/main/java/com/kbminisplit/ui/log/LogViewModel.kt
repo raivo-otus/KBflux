@@ -6,7 +6,7 @@ import com.kbminisplit.data.repository.SessionRepository
 import com.kbminisplit.domain.model.ExerciseCatalog
 import com.kbminisplit.domain.model.Session
 import com.kbminisplit.domain.model.SetStatus
-import com.kbminisplit.ui.mapper.toKbBlock
+import com.kbminisplit.ui.mapper.toKbCircuits
 import com.kbminisplit.ui.mapper.toStrengthRows
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,8 +69,7 @@ private val CATALOG_ORDER: Map<String, Int> =
     ExerciseCatalog.all.withIndex().associate { (idx, e) -> e.slug to idx }
 
 private fun Session.toDetail(): SessionDetail {
-    val kbBlock = sets.toKbBlock()
-    val kbCircuits = kbBlock.circuits.map { it.status }
+    val kbCircuits = sets.toKbCircuits().map { it.status }
 
     val strengthExercises = sets.filter { it.exerciseSlug != ExerciseCatalog.KbFlow.slug && !it.isPriming }
         .mapNotNull { ExerciseCatalog.bySlug(it.exerciseSlug) }

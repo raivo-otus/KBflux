@@ -13,12 +13,25 @@ class ExerciseCatalogTest {
     }
 
     @Test
-    fun `kb flow contains exactly the three canonical movements`() {
-        val slugs = ExerciseCatalog.kbFlowMovements.map { it.slug }
-
-        assertThat(slugs).containsExactly(
+    fun `kb flow movements are themed to the split`() {
+        assertThat(ExerciseCatalog.kbFlowForSplit(Split.A).map { it.slug }).containsExactly(
+            "swings", "high_pull", "goblet_squat",
+        ).inOrder()
+        assertThat(ExerciseCatalog.kbFlowForSplit(Split.B).map { it.slug }).containsExactly(
             "swings", "clean_and_press", "goblet_squat",
         ).inOrder()
+        assertThat(ExerciseCatalog.kbFlowForSplit(Split.C).map { it.slug }).containsExactly(
+            "swings", "goblet_squat", "snatch",
+        ).inOrder()
+    }
+
+    @Test
+    fun `unilateral kb movements are flagged per-side`() {
+        assertThat(ExerciseCatalog.HighPull.isPerSide).isTrue()
+        assertThat(ExerciseCatalog.Snatch.isPerSide).isTrue()
+        assertThat(ExerciseCatalog.CleanAndPress.isPerSide).isTrue()
+        assertThat(ExerciseCatalog.Swings.isPerSide).isFalse()
+        assertThat(ExerciseCatalog.GobletSquat.isPerSide).isFalse()
     }
 
     @Test
@@ -45,7 +58,7 @@ class ExerciseCatalogTest {
 
     @Test
     fun `KB movements step in 2 kg, strength in 2 point 5 kg`() {
-        ExerciseCatalog.kbFlowMovements.forEach {
+        ExerciseCatalog.all.filter { it.category == Category.KB }.forEach {
             assertThat(it.weightStepKg).isEqualTo(2.0)
         }
 
