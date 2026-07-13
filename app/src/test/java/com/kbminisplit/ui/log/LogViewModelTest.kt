@@ -121,6 +121,8 @@ class LogViewModelTest {
             assertThat(pulldown.weightKg).isEqualTo(50.0)
             assertThat(pulldown.targetReps).isEqualTo(8)
             assertThat(pulldown.primeStatus).isEqualTo(SetStatus.Completed)
+            // Historical session predates the warm-up set → tolerated as null.
+            assertThat(pulldown.warmupStatus).isNull()
             assertThat(pulldown.workingStatuses).containsExactly(
                 SetStatus.Completed,
                 SetStatus.Completed,

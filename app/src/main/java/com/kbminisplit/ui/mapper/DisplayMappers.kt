@@ -5,6 +5,10 @@ import com.kbminisplit.domain.model.ExerciseCatalog
 import com.kbminisplit.domain.model.ExerciseMechanic
 import com.kbminisplit.domain.model.SetEntry
 import com.kbminisplit.domain.model.Split
+import com.kbminisplit.domain.progression.PRIME_FRACTION
+import com.kbminisplit.domain.progression.WARMUP_FRACTION
+import com.kbminisplit.domain.progression.acclimatizationFloorKg
+import com.kbminisplit.domain.progression.acclimatizationLoadKg
 import com.kbminisplit.domain.progression.effectiveLoadKg
 import com.kbminisplit.ui.tracker.KbBlock
 import com.kbminisplit.ui.tracker.KbMovementLabel
@@ -39,7 +43,11 @@ fun List<SetEntry>.toStrengthRows(
     val setsBySlug = groupBy { it.exerciseSlug }
     return exercises.mapNotNull { exercise ->
         val all = setsBySlug[exercise.slug].orEmpty()
-        val prime = all.firstOrNull { it.isPriming } ?: return@mapNotNull null
+        // Prime and Warm-up are both priming rows, ordered by setIndex (0 = prime,
+        // 1 = warm-up). Historical sessions may have only the prime.
+        val priming = all.filter { it.isPriming }.sortedBy { it.setIndex }
+        val primeEntry = priming.firstOrNull() ?: return@mapNotNull null
+        val warmupEntry = priming.getOrNull(1)
         val working = all.filter { !it.isPriming }.sortedBy { it.setIndex }
         val reference = working.firstOrNull() ?: return@mapNotNull null
         // Effective load only applies to assisted movements and only once a
@@ -47,12 +55,22 @@ fun List<SetEntry>.toStrengthRows(
         val effectiveLoad = bodyweightKg
             ?.takeIf { exercise.mechanic == ExerciseMechanic.ASSISTED }
             ?.let { effectiveLoadKg(exercise.mechanic, reference.weightKg, it) }
+        // Acclimatization loads shown inside the circles, derived from the working
+        // weight. When assisted with no bodyweight yet, fall back to the working pin.
+        val floor = acclimatizationFloorKg(exercise)
+        val primeKg = acclimatizationLoadKg(
+            exercise.mechanic, reference.weightKg, PRIME_FRACTION, floor, bodyweightKg,
+        ) ?: reference.weightKg
+        val warmupKg = acclimatizationLoadKg(
+            exercise.mechanic, reference.weightKg, WARMUP_FRACTION, floor, bodyweightKg,
+        ) ?: reference.weightKg
         StrengthMovementRow(
             exercise = exercise,
             weightKg = reference.weightKg,
             targetReps = reference.targetReps
                 ?: error("Strength working set missing targetReps (${exercise.slug})"),
-            prime = prime.toCell(),
+            prime = primeEntry.toCell().copy(weightKg = primeKg),
+            warmup = warmupEntry?.toCell()?.copy(weightKg = warmupKg),
             working = working.map { it.toCell() },
             effectiveLoadKg = effectiveLoad,
         )
@@ -64,4 +82,5 @@ fun SetEntry.toCell() = SetCell(
     setIndex = setIndex,
     isPriming = isPriming,
     status = status,
+    weightKg = weightKg,
 )

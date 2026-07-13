@@ -54,6 +54,10 @@ import com.kbminisplit.domain.model.SetStatus
  * The same single-tap-from-non-pending behavior is allowed so the user can
  * correct a double-tap-too-many: tap unconditionally moves toward Completed,
  * double-tap toward Failed.
+ *
+ * [centerText], when set, is shown inside the circle while [SetStatus.Pending] — used
+ * by Prime/Warm-up buttons to display their acclimatization weight. Once resolved the
+ * status glyph replaces it.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -64,6 +68,7 @@ fun SetButton(
     onFail: () -> Unit,
     onRevert: () -> Unit,
     modifier: Modifier = Modifier,
+    centerText: String? = null,
 ) {
     val view = LocalView.current
     val hapticLevel = LocalHapticLevel.current
@@ -153,11 +158,17 @@ fun SetButton(
                 SetStatus.Completed -> "✓"
                 SetStatus.Failed -> "–"
             }
-            if (glyph.isNotEmpty()) {
-                Text(
+            when {
+                glyph.isNotEmpty() -> Text(
                     text = glyph,
                     color = glyphColor,
                     style = MaterialTheme.typography.titleMedium,
+                )
+                // Pending Prime/Warm-up: show the target load to plate up.
+                centerText != null -> Text(
+                    text = centerText,
+                    color = colors.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium,
                 )
             }
         }

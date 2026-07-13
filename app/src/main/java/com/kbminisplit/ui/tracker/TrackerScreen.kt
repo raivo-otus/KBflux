@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +60,19 @@ import java.time.format.DateTimeFormatter
 fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var editingWeight by remember { mutableStateOf<WeightEditTarget?>(null) }
+
+    // On days with an assisted lift, capture a current bodyweight up front: the
+    // Prime/Warm-up loads for assisted movements are derived from effective load, so
+    // we ask before the user starts. Handled once per day — dismissing won't re-open
+    // it (the persistent banner remains for manual entry).
+    val ready = state as? TrackerUiState.Ready
+    var bodyweightAskedForDate by remember { mutableStateOf<LocalDate?>(null) }
+    LaunchedEffect(ready?.date, ready?.bodyweightPrompt) {
+        if (ready != null && ready.bodyweightPrompt && bodyweightAskedForDate != ready.date) {
+            bodyweightAskedForDate = ready.date
+            editingWeight = WeightEditTarget.Bodyweight(ready.currentBodyweightKg ?: DEFAULT_BODYWEIGHT_KG)
+        }
+    }
 
     Scaffold { padding ->
         Box(
@@ -508,17 +522,32 @@ private fun StrengthSection(
     Spacer(Modifier.height(12.dp))
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SetButtonWithLabel(
             label = "Prime",
             cell = row.prime,
+            // The number is the acclimatization load to plate up for this lead-in set.
+            centerText = formatKg(row.prime.weightKg),
             contentDescription = "${row.exercise.displayName} priming set",
             onTap = onTap,
             onDoubleTap = onDoubleTap,
             onLongPress = onLongPress,
+            modifier = Modifier.weight(1f),
         )
+        row.warmup?.let { warmup ->
+            SetButtonWithLabel(
+                label = "Warm-up",
+                cell = warmup,
+                centerText = formatKg(warmup.weightKg),
+                contentDescription = "${row.exercise.displayName} warm-up set",
+                onTap = onTap,
+                onDoubleTap = onDoubleTap,
+                onLongPress = onLongPress,
+                modifier = Modifier.weight(1f),
+            )
+        }
         row.working.forEachIndexed { idx, cell ->
             SetButtonWithLabel(
                 label = "Work",
@@ -527,6 +556,7 @@ private fun StrengthSection(
                 onTap = onTap,
                 onDoubleTap = onDoubleTap,
                 onLongPress = onLongPress,
+                modifier = Modifier.weight(1f),
             )
         }
     }
@@ -540,12 +570,18 @@ private fun SetButtonWithLabel(
     onTap: (SetCell) -> Unit,
     onDoubleTap: (SetCell) -> Unit,
     onLongPress: (SetCell) -> Unit,
+    modifier: Modifier = Modifier,
+    centerText: String? = null,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier,
+    ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
         )
         Spacer(Modifier.height(4.dp))
         SetButton(
@@ -554,6 +590,7 @@ private fun SetButtonWithLabel(
             onComplete = { onTap(cell) },
             onFail = { onDoubleTap(cell) },
             onRevert = { onLongPress(cell) },
+            centerText = centerText,
         )
     }
 }

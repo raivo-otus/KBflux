@@ -3,11 +3,13 @@ package com.kbminisplit.ui.components
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
@@ -127,5 +129,29 @@ class SetButtonTest {
         composeTestRule.waitForIdle()
 
         assertThat(revertCount).isEqualTo(1)
+    }
+
+    @Test
+    fun centerText_showsWhilePendingAndIsReplacedByGlyphOnceResolved() {
+        var status by mutableStateOf(SetStatus.Pending)
+        composeTestRule.setContent {
+            SetButton(
+                status = status,
+                contentDescription = "Set",
+                onComplete = { status = SetStatus.Completed },
+                onFail = {},
+                onRevert = {},
+                centerText = "25",
+            )
+        }
+
+        // Pending Prime/Warm-up: the acclimatization load is shown inside the circle.
+        composeTestRule.onNodeWithText("25").assertIsDisplayed()
+
+        // Once resolved, the status glyph replaces the number.
+        composeTestRule.onNodeWithContentDescription("Set").performTouchInput { click() }
+        composeTestRule.mainClock.advanceTimeBy(1000L)
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("25").assertDoesNotExist()
     }
 }

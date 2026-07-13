@@ -62,5 +62,7 @@ data class StrengthDetail(
     val weightKg: Double,
     val targetReps: Int,
     val primeStatus: SetStatus,
+    /** Null for historical sessions logged before the warm-up set existed. */
+    val warmupStatus: SetStatus?,
     val workingStatuses: List<SetStatus>,
 )

@@ -165,8 +165,8 @@ class TrackerViewModelTest {
             assertThat(snapshot.split).isEqualTo(Split.A)
             assertThat(snapshot.kbWeightKg).isEqualTo(16.0)
 
-            // 3 KB circuits + 2 strength × (1 prime + 3 working) = 3 + 8 = 11
-            assertThat(snapshot.sets).hasSize(11)
+            // 3 KB circuits + 2 strength × (1 prime + 1 warm-up + 3 working) = 3 + 10 = 13
+            assertThat(snapshot.sets).hasSize(13)
             assertThat(snapshot.sets.count { it.exerciseSlug == ExerciseCatalog.KbFlow.slug })
                 .isEqualTo(3)
         }
@@ -195,9 +195,27 @@ class TrackerViewModelTest {
                     weightKg = 50.0,
                     status = SetStatus.Pending,
                 ),
+                // Warm-up row (setIndex 1) — required since the freshness guard
+                // rebuilds any in-progress that predates the warm-up set.
+                SetEntry(
+                    exerciseSlug = ExerciseCatalog.LatPulldown.slug,
+                    setIndex = 1,
+                    isPriming = true,
+                    targetReps = null,
+                    weightKg = 50.0,
+                    status = SetStatus.Pending,
+                ),
                 SetEntry(
                     exerciseSlug = ExerciseCatalog.BarbellRow.slug,
                     setIndex = 0,
+                    isPriming = true,
+                    targetReps = null,
+                    weightKg = 40.0,
+                    status = SetStatus.Pending,
+                ),
+                SetEntry(
+                    exerciseSlug = ExerciseCatalog.BarbellRow.slug,
+                    setIndex = 1,
                     isPriming = true,
                     targetReps = null,
                     weightKg = 40.0,
@@ -323,6 +341,21 @@ class TrackerViewModelTest {
             assertThat(pulldown.weightKg).isEqualTo(50.0)
             assertThat(pulldown.targetReps).isEqualTo(8)
             assertThat(pulldown.working).hasSize(3)
+        }
+    }
+
+    @Test
+    fun `strength row exposes prime and warm-up acclimatization loads`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            val ready = vm.state.value as TrackerUiState.Ready
+            val pulldown = ready.strength.first { it.exercise.slug == ExerciseCatalog.LatPulldown.slug }
+            // Working 50 kg, traditional main lift (floor 20): prime 25, warm-up 37.5.
+            assertThat(pulldown.prime.weightKg).isEqualTo(25.0)
+            assertThat(pulldown.warmup).isNotNull()
+            assertThat(pulldown.warmup!!.weightKg).isEqualTo(37.5)
         }
     }
 
@@ -712,10 +745,10 @@ class TrackerViewModelTest {
             advanceUntilIdle()
 
             val auxSlugs = ExerciseCatalog.auxForSplit(Split.A).map { it.slug }.toSet()
-            // 3 aux movements × (1 prime + 3 working) = 12 aux sets.
-            assertThat(captured.captured.sets.count { it.exerciseSlug in auxSlugs }).isEqualTo(12)
-            // 11 main (3 KB + 2×4) + 12 aux = 23.
-            assertThat(captured.captured.sets).hasSize(23)
+            // 3 aux movements × (1 prime + 1 warm-up + 3 working) = 15 aux sets.
+            assertThat(captured.captured.sets.count { it.exerciseSlug in auxSlugs }).isEqualTo(15)
+            // 13 main (3 KB + 2×5) + 15 aux = 28.
+            assertThat(captured.captured.sets).hasSize(28)
         }
     }
 
