@@ -103,6 +103,12 @@ class TrackerFlowTest {
         composeTestRule.onNode(
             hasContentDescription("KB Flow circuit 1") and hasStateDescription("Completed")
         ).assertIsDisplayed()
+
+        // 5. Completing a set starts the rest guide.
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodes(hasTestTag("rest_timer")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithTag("rest_timer").assertIsDisplayed()
     }
 
     @Test
@@ -123,57 +129,17 @@ class TrackerFlowTest {
             }
         }
 
-        // 3. Complete Strength 1 (Lat Pulldown in Split A)
-        val m1 = "Lat Pulldown"
-        val m1Prime = "$m1 priming set"
-        composeTestRule.onNodeWithContentDescription(m1Prime).performScrollTo().performClick()
-        composeTestRule.waitUntil(timeoutMillis = 2000) {
-            composeTestRule.onAllNodes(
-                hasContentDescription(m1Prime) and hasStateDescription("Completed")
-            ).fetchSemanticsNodes().isNotEmpty()
-        }
-        val m1Warmup = "$m1 warm-up set"
-        composeTestRule.onNodeWithContentDescription(m1Warmup).performScrollTo().performClick()
-        composeTestRule.waitUntil(timeoutMillis = 2000) {
-            composeTestRule.onAllNodes(
-                hasContentDescription(m1Warmup) and hasStateDescription("Completed")
-            ).fetchSemanticsNodes().isNotEmpty()
-        }
-        for (i in 1..3) {
-            val desc = "$m1 working set $i"
-            composeTestRule.onNodeWithContentDescription(desc).performScrollTo().performClick()
-            composeTestRule.waitUntil(timeoutMillis = 2000) {
-                composeTestRule.onAllNodes(
-                    hasContentDescription(desc) and hasStateDescription("Completed")
-                ).fetchSemanticsNodes().isNotEmpty()
-            }
-        }
+        // 3. Complete the two strength movements of Split A
+        completeMovement("Lat Pulldown")
+        completeMovement("Barbell Row")
 
-        // 4. Complete Strength 2 (Barbell Row in Split A)
-        val m2 = "Barbell Row"
-        val m2Prime = "$m2 priming set"
-        composeTestRule.onNodeWithContentDescription(m2Prime).performScrollTo().performClick()
-        composeTestRule.waitUntil(timeoutMillis = 2000) {
-            composeTestRule.onAllNodes(
-                hasContentDescription(m2Prime) and hasStateDescription("Completed")
-            ).fetchSemanticsNodes().isNotEmpty()
+        // 4. Main resolved → aux block is appended automatically (no prompt).
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodes(hasTestTag("aux_block")).fetchSemanticsNodes().isNotEmpty()
         }
-        val m2Warmup = "$m2 warm-up set"
-        composeTestRule.onNodeWithContentDescription(m2Warmup).performScrollTo().performClick()
-        composeTestRule.waitUntil(timeoutMillis = 2000) {
-            composeTestRule.onAllNodes(
-                hasContentDescription(m2Warmup) and hasStateDescription("Completed")
-            ).fetchSemanticsNodes().isNotEmpty()
-        }
-        for (i in 1..3) {
-            val desc = "$m2 working set $i"
-            composeTestRule.onNodeWithContentDescription(desc).performScrollTo().performClick()
-            composeTestRule.waitUntil(timeoutMillis = 2000) {
-                composeTestRule.onAllNodes(
-                    hasContentDescription(desc) and hasStateDescription("Completed")
-                ).fetchSemanticsNodes().isNotEmpty()
-            }
-        }
+        completeMovement("Side-Delt Flyes")
+        completeMovement("Tricep Extensions")
+        completeMovement("Back Extensions")
 
         // 5. Verify Feedback sheet appears
         composeTestRule.waitUntil(timeoutMillis = 5000) {
@@ -198,5 +164,19 @@ class TrackerFlowTest {
             composeTestRule.onAllNodes(hasContentDescription("Bench Press priming set")).fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithContentDescription("Bench Press priming set").assertIsDisplayed()
+    }
+
+    /** Prime, warm-up, then the three working sets of [name], waiting out each state change. */
+    private fun completeMovement(name: String) {
+        val descriptions = listOf("$name priming set", "$name warm-up set") +
+            (1..3).map { "$name working set $it" }
+        descriptions.forEach { desc ->
+            composeTestRule.onNodeWithContentDescription(desc).performScrollTo().performClick()
+            composeTestRule.waitUntil(timeoutMillis = 2000) {
+                composeTestRule.onAllNodes(
+                    hasContentDescription(desc) and hasStateDescription("Completed")
+                ).fetchSemanticsNodes().isNotEmpty()
+            }
+        }
     }
 }

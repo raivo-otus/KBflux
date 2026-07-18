@@ -70,16 +70,14 @@ sealed interface TrackerUiState {
         val kbWeightKg: Double,
         val kbBlock: KbBlock,
         val strength: List<StrengthMovementRow>,
-        /** All KB + main strength buttons are resolved (drives the aux prompt). */
+        /** All KB + main strength buttons are resolved (drives the auto-aux append). */
         val mainResolved: Boolean,
         val kbBump: KbBumpState?,
         val isFirstSession: Boolean = false,
         /** MAIN shows KB + strength; AUX shows the auxiliary movements. */
         val phase: TrackerPhase = TrackerPhase.MAIN,
-        /** Auxiliary movement rows; non-empty only once aux work has started. */
+        /** Auxiliary movement rows, auto-appended once the main block resolves. */
         val aux: List<StrengthMovementRow> = emptyList(),
-        /** Main is done and the user hasn't yet chosen whether to do aux work. */
-        val showAuxPrompt: Boolean = false,
         /** Everything the session needs is resolved — show the feedback sheet. */
         val feedbackReady: Boolean = false,
         /** Weekly bodyweight check-in is due (assisted movement today + entry stale). */

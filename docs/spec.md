@@ -156,11 +156,16 @@ The loads are derived from the working weight, never stored:
 
 ### 4.4 Completion flow
 
-When **every** button on the screen is in a non-pending state (completed or failed):
+When every **main-block** button (KB circuits + both strength movements) is in a
+non-pending state, the split's three auxiliary movements are appended
+automatically — same Prime / Warm-up / 3×Work shape — and the Tracker switches
+to the Auxiliary block. No prompt: auxiliary work is part of every session.
+
+When the auxiliary buttons are also all non-pending:
 
 1. A modal slides up: "How did that feel?"
 2. Three large color dots: 🔴 🟡 🟢 (the only color in the app)
-3. User taps one → session is committed → split pointer advances → Tracker re-renders showing the next day's split.
+3. User taps one → session (main + aux) is committed → split pointer advances → Tracker re-renders showing the next day's split.
 
 There is **no skip, no save-as-draft, no edit.** The session lives in the log the moment feedback is given.
 
@@ -171,6 +176,20 @@ If the app is killed mid-workout, the in-progress state of every button is resto
 ### 4.6 Empty-tab state for a fresh user
 
 After onboarding completes, the first Tracker render shows **Session A** with all buttons pending, KB weight and strength weights pulled from onboarding entries.
+
+### 4.7 Rest guide
+
+Marking any set completed or failed (re)starts a rest guide pinned to the
+bottom edge of the Tracker: a count-up `m:ss` over a hairline track that fills
+toward **3:00**, with a notch at **1:30**.
+
+- **1:30** — enough after priming, warm-up, or sets that felt easy.
+- **3:00** — full rest before the next heavy working set.
+
+Soft guidance only, never an alarm: a subtle haptic marks each threshold, past
+3:00 the bar dims and keeps counting, and nothing is ever blocked. The guide
+hides under the feedback modal and resets with the session. In-memory only — it
+survives rotation but not process death.
 
 ## 5. Log
 

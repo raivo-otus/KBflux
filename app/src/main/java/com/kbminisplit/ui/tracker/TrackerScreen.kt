@@ -1,5 +1,10 @@
 package com.kbminisplit.ui.tracker
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +55,7 @@ import com.kbminisplit.domain.model.ExerciseMechanic
 import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.Split
 import com.kbminisplit.ui.components.FeedbackDot
+import com.kbminisplit.ui.components.RestTimerBar
 import com.kbminisplit.ui.components.SetButton
 import com.kbminisplit.ui.util.formatKg
 import java.time.LocalDate
@@ -59,6 +65,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val restStartedAt by viewModel.restStartedAtMillis.collectAsStateWithLifecycle()
     var editingWeight by remember { mutableStateOf<WeightEditTarget?>(null) }
 
     // On days with an assisted lift, capture a current bodyweight up front: the
@@ -74,7 +81,24 @@ fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
         }
     }
 
-    Scaffold { padding ->
+    Scaffold(
+        bottomBar = {
+            // The rest guide lives in the bottomBar slot so the Scaffold folds its
+            // height into the content padding — it can never cover the last row of
+            // set circles. Hidden once the feedback sheet takes over.
+            var lastStartedAt by remember { mutableStateOf<Long?>(null) }
+            restStartedAt?.let { lastStartedAt = it }
+            AnimatedVisibility(
+                visible = restStartedAt != null && ready != null && !ready.feedbackReady,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                // Render from the cached anchor so the exit animation shrinks the
+                // bar instead of collapsing on empty content when the value nulls.
+                lastStartedAt?.let { RestTimerBar(startedAtMillis = it) }
+            }
+        },
+    ) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -90,8 +114,6 @@ fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
                     onFeedback = viewModel::onFeedback,
                     onBumpAccept = viewModel::onKbBumpAccept,
                     onBumpSnooze = viewModel::onKbBumpSnooze,
-                    onStartAux = viewModel::onStartAux,
-                    onSkipAux = viewModel::onSkipAux,
                 ) { editingWeight = it }
             }
         }
@@ -149,8 +171,6 @@ private fun ReadyContent(
     onFeedback: (Feedback) -> Unit,
     onBumpAccept: () -> Unit,
     onBumpSnooze: () -> Unit,
-    onStartAux: () -> Unit,
-    onSkipAux: () -> Unit,
     onWeightTap: (WeightEditTarget) -> Unit,
 ) {
     Column(
@@ -188,10 +208,6 @@ private fun ReadyContent(
                 onWeightTap = onWeightTap,
             )
         }
-    }
-
-    if (state.showAuxPrompt) {
-        AuxPromptDialog(onYes = onStartAux, onNo = onSkipAux)
     }
 
     // Spec §4.4: feedback is mandatory. Veto Hidden so swipe-down / back
@@ -294,22 +310,6 @@ private fun AuxBlock(
             Spacer(Modifier.height(20.dp))
         }
     }
-}
-
-@Composable
-private fun AuxPromptDialog(onYes: () -> Unit, onNo: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = { /* Mandatory choice: no swipe/back dismiss. */ },
-        modifier = Modifier.testTag("aux_prompt"),
-        title = { Text("Auxiliary work?") },
-        text = { Text("Nice work. Do you want to add your auxiliary movements before logging?") },
-        confirmButton = {
-            Button(onClick = onYes) { Text("Yes") }
-        },
-        dismissButton = {
-            TextButton(onClick = onNo) { Text("No, finish") }
-        },
-    )
 }
 
 @Composable

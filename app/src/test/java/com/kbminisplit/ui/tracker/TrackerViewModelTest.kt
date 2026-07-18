@@ -660,51 +660,16 @@ class TrackerViewModelTest {
     // ---- Auxiliary flow ----
 
     @Test
-    fun `aux prompt appears once main work is resolved`() {
+    fun `resolving main auto-appends aux and enters AUX phase`() {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
-            resolveAllSets()
+
+            resolveMainViaLastTap(vm)
             advanceUntilIdle()
 
             val ready = vm.state.value as TrackerUiState.Ready
             assertThat(ready.mainResolved).isTrue()
-            assertThat(ready.showAuxPrompt).isTrue()
-            assertThat(ready.feedbackReady).isFalse()
-            assertThat(ready.phase).isEqualTo(TrackerPhase.MAIN)
-        }
-    }
-
-    @Test
-    fun `declining aux moves straight to feedback`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-            resolveAllSets()
-            advanceUntilIdle()
-
-            vm.onSkipAux()
-            advanceUntilIdle()
-
-            val ready = vm.state.value as TrackerUiState.Ready
-            assertThat(ready.showAuxPrompt).isFalse()
-            assertThat(ready.feedbackReady).isTrue()
-            assertThat(ready.phase).isEqualTo(TrackerPhase.MAIN)
-        }
-    }
-
-    @Test
-    fun `starting aux appends aux rows and enters AUX phase`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-            resolveAllSets()
-            advanceUntilIdle()
-
-            vm.onStartAux()
-            advanceUntilIdle()
-
-            val ready = vm.state.value as TrackerUiState.Ready
             assertThat(ready.phase).isEqualTo(TrackerPhase.AUX)
             assertThat(ready.aux.map { it.exercise.slug }).containsExactly(
                 ExerciseCatalog.SideDeltFly.slug,
@@ -717,6 +682,100 @@ class TrackerViewModelTest {
             assertThat(fly.weightKg).isEqualTo(6.0)
             // Aux not yet resolved → no feedback sheet.
             assertThat(ready.feedbackReady).isFalse()
+            coVerify(exactly = 1) { inProgressRepository.addSets(any()) }
+        }
+    }
+
+    @Test
+    fun `partial main resolution does not append aux`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            val prime = (vm.state.value as TrackerUiState.Ready).strength.first().prime
+            vm.onSetTap(prime)
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { inProgressRepository.addSets(any()) }
+        }
+    }
+
+    @Test
+    fun `tapping an aux set does not re-append aux`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            resolveMainViaLastTap(vm)
+            advanceUntilIdle()
+
+            val auxPrime = (vm.state.value as TrackerUiState.Ready).aux.first().prime
+            vm.onSetTap(auxPrime)
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { inProgressRepository.addSets(any()) }
+        }
+    }
+
+    @Test
+    fun `bootstrap appends aux to a kept snapshot whose main is fully resolved`() {
+        // Orphan states are reachable via an app update mid-session (the old
+        // build's prompt was declined or unanswered) or process death between
+        // the final set update and the append.
+        inProgressFlow.value = InProgressSnapshot(
+            date = today,
+            split = Split.A,
+            kbWeightKg = 16.0,
+            sets = listOf(
+                SetEntry(
+                    exerciseSlug = ExerciseCatalog.KbFlow.slug,
+                    setIndex = 0,
+                    isPriming = false,
+                    targetReps = null,
+                    weightKg = 16.0,
+                    status = SetStatus.Completed,
+                ),
+                SetEntry(
+                    exerciseSlug = ExerciseCatalog.LatPulldown.slug,
+                    setIndex = 0,
+                    isPriming = true,
+                    targetReps = null,
+                    weightKg = 50.0,
+                    status = SetStatus.Completed,
+                ),
+                SetEntry(
+                    exerciseSlug = ExerciseCatalog.LatPulldown.slug,
+                    setIndex = 1,
+                    isPriming = true,
+                    targetReps = null,
+                    weightKg = 50.0,
+                    status = SetStatus.Completed,
+                ),
+                SetEntry(
+                    exerciseSlug = ExerciseCatalog.BarbellRow.slug,
+                    setIndex = 0,
+                    isPriming = true,
+                    targetReps = null,
+                    weightKg = 40.0,
+                    status = SetStatus.Completed,
+                ),
+                SetEntry(
+                    exerciseSlug = ExerciseCatalog.BarbellRow.slug,
+                    setIndex = 1,
+                    isPriming = true,
+                    targetReps = null,
+                    weightKg = 40.0,
+                    status = SetStatus.Completed,
+                ),
+            ),
+        )
+        runTest(testDispatcher) {
+            newViewModel()
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { inProgressRepository.start(any(), any(), any(), any()) }
+            coVerify(exactly = 1) { inProgressRepository.addSets(any()) }
+            assertThat(inProgressFlow.value!!.sets.any { it.exerciseSlug == ExerciseCatalog.SideDeltFly.slug })
+                .isTrue()
         }
     }
 
@@ -725,11 +784,9 @@ class TrackerViewModelTest {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
-            resolveAllSets()
+            resolveMainViaLastTap(vm)
             advanceUntilIdle()
-            vm.onStartAux()
-            advanceUntilIdle()
-            resolveAllSets() // now resolves main + aux rows together
+            resolveAllSets() // resolves the freshly appended aux rows too
             advanceUntilIdle()
 
             val ready = vm.state.value as TrackerUiState.Ready
@@ -752,6 +809,88 @@ class TrackerViewModelTest {
         }
     }
 
+    // ---- Rest timer ----
+
+    @Test
+    fun `completing a set starts the rest timer at the clock now`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            assertThat(vm.restStartedAtMillis.value).isNull()
+
+            vm.onSetTap((vm.state.value as TrackerUiState.Ready).strength.first().prime)
+            advanceUntilIdle()
+
+            assertThat(vm.restStartedAtMillis.value).isEqualTo(fixedClock.millis())
+        }
+    }
+
+    @Test
+    fun `failing a set also restarts the rest timer`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            vm.onSetDoubleTap((vm.state.value as TrackerUiState.Ready).strength.first().working.first())
+            advanceUntilIdle()
+
+            assertThat(vm.restStartedAtMillis.value).isEqualTo(fixedClock.millis())
+        }
+    }
+
+    @Test
+    fun `revert neither starts nor clears the rest timer`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            val cell = (vm.state.value as TrackerUiState.Ready).strength.first().prime
+
+            vm.onSetLongPress(cell)
+            advanceUntilIdle()
+            assertThat(vm.restStartedAtMillis.value).isNull()
+
+            vm.onSetTap(cell)
+            advanceUntilIdle()
+            vm.onSetLongPress(cell)
+            advanceUntilIdle()
+            assertThat(vm.restStartedAtMillis.value).isEqualTo(fixedClock.millis())
+        }
+    }
+
+    @Test
+    fun `committing a session clears the rest timer`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            resolveMainViaLastTap(vm)
+            advanceUntilIdle()
+            resolveAllSets()
+            advanceUntilIdle()
+            assertThat(vm.restStartedAtMillis.value).isNotNull()
+
+            vm.onFeedback(Feedback.Green)
+            advanceUntilIdle()
+
+            assertThat(vm.restStartedAtMillis.value).isNull()
+        }
+    }
+
+    @Test
+    fun `forceSplit clears the rest timer`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            vm.onSetTap((vm.state.value as TrackerUiState.Ready).strength.first().prime)
+            advanceUntilIdle()
+            assertThat(vm.restStartedAtMillis.value).isNotNull()
+
+            vm.forceSplit(Split.C)
+            advanceUntilIdle()
+
+            assertThat(vm.restStartedAtMillis.value).isNull()
+        }
+    }
+
     // ---- helpers ----
 
     private fun sessionAt(date: LocalDate, split: Split, kbWeight: Double = 16.0) = Session(
@@ -766,6 +905,28 @@ class TrackerViewModelTest {
         val current = inProgressFlow.value!!
         inProgressFlow.value = current.copy(
             sets = current.sets.map { it.copy(status = SetStatus.Completed) },
+        )
+    }
+
+    /**
+     * Resolves every set but the last via the flow, then taps the last one
+     * through the ViewModel: the auto-aux append fires from updateSet, so at
+     * least the final resolve must go through the real path.
+     */
+    private fun resolveMainViaLastTap(vm: TrackerViewModel) {
+        val current = inProgressFlow.value!!
+        val last = current.sets.last()
+        inProgressFlow.value = current.copy(
+            sets = current.sets.dropLast(1).map { it.copy(status = SetStatus.Completed) } + last,
+        )
+        vm.onSetTap(
+            SetCell(
+                exerciseSlug = last.exerciseSlug,
+                setIndex = last.setIndex,
+                isPriming = last.isPriming,
+                status = last.status,
+                weightKg = last.weightKg,
+            ),
         )
     }
 }
