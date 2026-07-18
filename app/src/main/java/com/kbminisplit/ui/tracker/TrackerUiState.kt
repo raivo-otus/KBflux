@@ -8,12 +8,16 @@ import java.time.LocalDate
 /**
  * Identity of a single button on the Tracker. Mirrors the unique index on
  * `in_progress_set` so the ViewModel can address sets without ambiguity.
+ *
+ * [weightKg] is the number shown inside the circle for Prime/Warm-up sets (their
+ * acclimatization load); working and KB cells carry it too but don't render it.
  */
 data class SetCell(
     val exerciseSlug: String,
     val setIndex: Int,
     val isPriming: Boolean,
     val status: SetStatus,
+    val weightKg: Double,
 )
 
 /** Visual reference for a KB movement in the section header — no button attached. */
@@ -32,12 +36,19 @@ data class KbBlock(
     val circuits: List<SetCell>,
 )
 
-/** One row in the strength block: a movement, its weight + target reps, prime button, three working buttons. */
+/**
+ * One row in the strength block: a movement, its weight + target reps, and its set
+ * buttons — Prime, Warm-up, then three Work sets.
+ *
+ * [warmup] is nullable so the Log can reuse this mapping for historical sessions that
+ * predate the warm-up set; live Tracker rows always carry one.
+ */
 data class StrengthMovementRow(
     val exercise: Exercise,
     val weightKg: Double,
     val targetReps: Int,
     val prime: SetCell,
+    val warmup: SetCell?,
     val working: List<SetCell>,
     /**
      * Physiological load for an ASSISTED movement (bodyweight − pin), for the

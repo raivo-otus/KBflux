@@ -82,6 +82,7 @@ private fun Session.toDetail(): SessionDetail {
             weightKg = row.weightKg,
             targetReps = row.targetReps,
             primeStatus = row.prime.status,
+            warmupStatus = row.warmup?.status,
             workingStatuses = row.working.map { it.status },
         )
     }

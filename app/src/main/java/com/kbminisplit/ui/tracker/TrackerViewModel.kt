@@ -273,6 +273,10 @@ class TrackerViewModel @Inject constructor(
             // exercises for this split flipped or changed, rebuild.
             existing.sets.none { it.exerciseSlug == m1.slug } -> true
             existing.sets.none { it.exerciseSlug == m2.slug } -> true
+            // Schema-freshness guard: a pre-warm-up in-progress carries only the
+            // prime priming row (setIndex 0). Rebuild so the warm-up set appears.
+            existing.sets.none { it.exerciseSlug == m1.slug && it.isPriming && it.setIndex == 1 } -> true
+            existing.sets.none { it.exerciseSlug == m2.slug && it.isPriming && it.setIndex == 1 } -> true
             else -> false
         }
         if (!needsFresh) return
@@ -312,6 +316,7 @@ class TrackerViewModel @Inject constructor(
             listOf(m1, m2).forEach { exercise ->
                 val rx = getPrescription(history, exercise, defaults)
                 add(primeFor(exercise, rx))
+                add(warmupFor(exercise, rx))
                 repeat(STRENGTH_WORKING_SETS) { idx ->
                     add(workingFor(exercise, rx, idx + 1))
                 }
@@ -327,15 +332,29 @@ class TrackerViewModel @Inject constructor(
         auxExercises.forEach { exercise ->
             val rx = getPrescription(history, exercise, defaults)
             add(primeFor(exercise, rx))
+            add(warmupFor(exercise, rx))
             repeat(STRENGTH_WORKING_SETS) { idx ->
                 add(workingFor(exercise, rx, idx + 1))
             }
         }
     }
 
+    // Prime and Warm-up are both priming rows (excluded from progression), told apart
+    // by setIndex: 0 = prime, 1 = warm-up. They store the working weight as a neutral
+    // placeholder; the acclimatization number shown in the circle is derived at display
+    // time from the working weight (and, for assisted lifts, the current bodyweight).
     private fun primeFor(exercise: Exercise, rx: Prescription) = SetEntry(
         exerciseSlug = exercise.slug,
         setIndex = 0,
+        isPriming = true,
+        targetReps = null,
+        weightKg = rx.weightKg,
+        status = SetStatus.Pending,
+    )
+
+    private fun warmupFor(exercise: Exercise, rx: Prescription) = SetEntry(
+        exerciseSlug = exercise.slug,
+        setIndex = 1,
         isPriming = true,
         targetReps = null,
         weightKg = rx.weightKg,
@@ -420,7 +439,9 @@ class TrackerViewModel @Inject constructor(
     }
 
     private fun StrengthMovementRow.isResolved(): Boolean =
-        prime.status != SetStatus.Pending && working.all { it.status != SetStatus.Pending }
+        prime.status != SetStatus.Pending &&
+            (warmup?.let { it.status != SetStatus.Pending } ?: true) &&
+            working.all { it.status != SetStatus.Pending }
 
     companion object {
         const val KB_ROUNDS = 3

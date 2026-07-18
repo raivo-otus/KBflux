@@ -73,6 +73,9 @@ class TrackerFlowTest {
                     standardMaxReps = 12,
                 )
             )
+            // Log a current bodyweight so the assisted-lift bodyweight check-in (which
+            // now auto-opens on Split B) stays dormant during the flow.
+            settingsRepository.updateBodyweight(80.0)
         }
     }
 
@@ -129,6 +132,13 @@ class TrackerFlowTest {
                 hasContentDescription(m1Prime) and hasStateDescription("Completed")
             ).fetchSemanticsNodes().isNotEmpty()
         }
+        val m1Warmup = "$m1 warm-up set"
+        composeTestRule.onNodeWithContentDescription(m1Warmup).performScrollTo().performClick()
+        composeTestRule.waitUntil(timeoutMillis = 2000) {
+            composeTestRule.onAllNodes(
+                hasContentDescription(m1Warmup) and hasStateDescription("Completed")
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
         for (i in 1..3) {
             val desc = "$m1 working set $i"
             composeTestRule.onNodeWithContentDescription(desc).performScrollTo().performClick()
@@ -146,6 +156,13 @@ class TrackerFlowTest {
         composeTestRule.waitUntil(timeoutMillis = 2000) {
             composeTestRule.onAllNodes(
                 hasContentDescription(m2Prime) and hasStateDescription("Completed")
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        val m2Warmup = "$m2 warm-up set"
+        composeTestRule.onNodeWithContentDescription(m2Warmup).performScrollTo().performClick()
+        composeTestRule.waitUntil(timeoutMillis = 2000) {
+            composeTestRule.onAllNodes(
+                hasContentDescription(m2Warmup) and hasStateDescription("Completed")
             ).fetchSemanticsNodes().isNotEmpty()
         }
         for (i in 1..3) {

@@ -343,7 +343,7 @@ private fun SessionDetailSheet(detail: SessionDetail) {
                 fontWeight = FontWeight.Medium,
             )
             Spacer(Modifier.height(4.dp))
-            SetStatusRow(listOf(row.primeStatus) + row.workingStatuses)
+            SetStatusRow(listOf(row.primeStatus) + listOfNotNull(row.warmupStatus) + row.workingStatuses)
         }
         Spacer(Modifier.height(12.dp))
     }

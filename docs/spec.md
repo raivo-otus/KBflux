@@ -59,11 +59,14 @@ the whole lap.
 
 ### 2.3 Strength block (one of A / B / C)
 
-Two compound movements per day. Each movement is **4 sets**:
+Two compound movements per day. Each movement is **5 sets**:
 
-- **1 priming set** — lighter weight, just to grease the movement. Not tracked individually; tap when done.
+- **1 priming set** — ~50% of the working weight, just to grease the movement. Not tracked for progression; tap when done.
+- **1 warm-up set** — ~75% of the working weight. Not tracked for progression; tap when done.
 - **3 working sets** — at the target weight and target reps. Tracked for progression.
 - Alternate movement order each cycle
+
+The priming and warm-up loads are derived from the working weight (§4.3) and shown inside their circles so the target is unambiguous at the rack.
 
 | Day | Movement 1                                | Movement 2              |
 | --- | ----------------------------------------- | ----------------------- |
@@ -106,13 +109,13 @@ Single scrollable screen, top to bottom:
 ├────────────────────────────────────────┤
 │  Lat Pulldown · 70 kg · target 10 reps │
 │                                        │
-│  Prime · Work · Work · Work            │
-│   ●      ●      ●      ●               │
+│  Prime · Warm-up · Work · Work · Work  │
+│  (35)    (52.5)    ●      ●      ●      │  ← prime/warm-up show their load
 ├────────────────────────────────────────┤
 │  Barbell Row · 60 kg · target 12 reps  │
 │                                        │
-│  Prime · Work · Work · Work            │
-│   ●      ●      ●      ●               │
+│  Prime · Warm-up · Work · Work · Work  │
+│  (30)    (45)      ●      ●      ●      │
 └────────────────────────────────────────┘
 ```
 
@@ -132,9 +135,24 @@ A long-press on a completed/failed button reverts it to pending (in-session corr
 - Double tap → long haptic + alternate glyph
 - Long press → light haptic + revert animation
 
-### 4.3 Priming set
+### 4.3 Priming & warm-up sets
 
-The Prime button is just a "done" tap — no weight or rep tracking. Suggested priming weight is shown next to it as guidance (previous working weight), but not stored.
+The Prime and Warm-up buttons are "done" taps — no rep tracking — but each shows the
+weight to plate up *inside* its circle (replaced by the status glyph once tapped). The
+number is the equipment setting: load for a traditional lift, assistance pin for an
+assisted one.
+
+The loads are derived from the working weight, never stored:
+
+- **Prime** targets 50% of the working load; **Warm-up** targets 75%.
+- Rounded to the nearest **2.5 kg** so it is realistic to plate up.
+- Floored at **20 kg** for main lifts (A/B/C) and **5 kg** for auxiliaries, and never
+  heavier than the working set (so very light or bodyweight movements don't ramp up).
+- **Assisted movements** (e.g. Assisted Dips) invert: the number is machine assistance,
+  so the same 50%/75% reduction is applied to the *effective* load (bodyweight − pin)
+  and the pin is raised to match. This needs a current bodyweight, so the weekly
+  check-in (§ bodyweight) is asked up front on any day that programs an assisted lift;
+  until one is entered the lead-in sets mirror the working pin.
 
 ### 4.4 Completion flow
 
@@ -284,7 +302,11 @@ post-onboarding Tracker bootstrap) only ever see a fully-formed
 
 ### 8.4 `set_entry`
 
-One row per set, including KB rounds. Priming sets are stored as a separate row with `is_priming = true`.
+One row per set, including KB rounds. The priming and warm-up sets are both stored with
+`is_priming = true`, told apart by `set_index` (0 = prime, 1 = warm-up); the three
+working sets are `is_priming = false` with `set_index` 1–3. Treating warm-up as a
+priming row keeps it out of every progression/deload calculation (which key on
+`is_priming = false`) and needs no schema change.
 
 | Column          | Type    | Notes                                                        |
 | --------------- | ------- | ------------------------------------------------------------ |
@@ -292,8 +314,8 @@ One row per set, including KB rounds. Priming sets are stored as a separate row 
 | `session_id`    | INTEGER | FK → `session.id` (cascade delete)                           |
 | `exercise_slug` | TEXT    | FK → `exercise.slug`                                         |
 | `set_index`     | INTEGER | 0-based ordinal within (session, exercise)                   |
-| `is_priming`    | BOOL    | true for the priming set of a strength movement              |
-| `target_reps`   | INTEGER | nullable for KB (KB reps are fixed) and priming sets         |
+| `is_priming`    | BOOL    | true for the prime (`set_index` 0) and warm-up (`set_index` 1) sets |
+| `target_reps`   | INTEGER | nullable for KB (KB reps are fixed) and priming/warm-up sets |
 | `weight_kg`     | REAL    | working weight or KB weight                                  |
 | `status`        | TEXT    | `Completed` / `Failed`                                       |
 
