@@ -33,11 +33,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.Clock
 import java.time.LocalDate
 import java.time.YearMonth
@@ -73,10 +76,14 @@ class TrackerViewModel @Inject constructor(
 
     private val processing = AtomicBoolean(false)
 
-    // Transient "user tapped No to auxiliary work" flag. Not persisted: aux
-    // presence is derived from the in-progress rows, but a decision to *skip*
-    // aux has no backing row, so it lives here and resets on each fresh session.
-    private val auxSkipped = MutableStateFlow(false)
+    // Rest-guide anchor: epoch millis of the last set resolved (completed or
+    // failed). In-memory only — a rest guide doesn't need to survive process
+    // death — so it lives here rather than in the in-progress tables.
+    private val _restStartedAtMillis = MutableStateFlow<Long?>(null)
+    val restStartedAtMillis: StateFlow<Long?> = _restStartedAtMillis.asStateFlow()
+
+    // Serializes the aux append so racing final taps wait instead of skipping.
+    private val auxMutex = Mutex()
 
     private val historyFlow = sessionRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -90,17 +97,15 @@ class TrackerViewModel @Inject constructor(
     val state: StateFlow<TrackerUiState> = combine(
         inProgressRepository.observe(),
         historyFlow,
-        // Nested so the 5-arg combine stays typed: onboarding defaults + bodyweight
-        // both originate from settings.
+        // Nested pair: onboarding defaults + bodyweight both originate from settings.
         combine(defaultsFlow, bodyweightFlow) { defaults, bodyweight -> defaults to bodyweight },
         settingsRepository.observeKbBumpSnooze(),
-        auxSkipped,
-    ) { inProgress, history, defaultsAndBodyweight, snooze, skipAux ->
+    ) { inProgress, history, defaultsAndBodyweight, snooze ->
         val (defaults, bodyweight) = defaultsAndBodyweight
         if (defaults == null || inProgress == null) {
             TrackerUiState.Loading
         } else {
-            buildReady(inProgress, history, defaults, bodyweight, snooze, skipAux)
+            buildReady(inProgress, history, defaults, bodyweight, snooze)
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, TrackerUiState.Loading)
 
@@ -162,28 +167,25 @@ class TrackerViewModel @Inject constructor(
         }
     }
 
-    /** User chose to do auxiliary work: append the aux block to the session. */
-    fun onStartAux() {
-        if (!processing.compareAndSet(false, true)) return
-        viewModelScope.launch {
-            try {
-                val snapshot = inProgressRepository.get() ?: return@launch
-                val auxExercises = ExerciseCatalog.auxForSplit(snapshot.split)
-                val auxSlugs = auxExercises.map { it.slug }.toSet()
-                // Idempotent: don't re-add if aux rows already exist.
-                if (snapshot.sets.any { it.exerciseSlug in auxSlugs }) return@launch
-                val defaults = settingsRepository.getOnboardingDefaults() ?: return@launch
-                val history = sessionRepository.getAll()
-                inProgressRepository.addSets(buildAuxSets(auxExercises, defaults, history))
-            } finally {
-                processing.set(false)
-            }
+    /**
+     * Appends the auxiliary block once every main set is resolved. Aux work is
+     * always part of the session (no prompt): the append fires from [updateSet]
+     * when the last main set resolves, and from [bootstrapIfNeeded] as a safety
+     * net for snapshots that resolved main without gaining aux rows (app update
+     * mid-session, process death between the resolve and the append).
+     */
+    private suspend fun maybeAppendAux() {
+        auxMutex.withLock {
+            val snapshot = inProgressRepository.get() ?: return
+            if (snapshot.sets.any { it.status == SetStatus.Pending }) return
+            val auxExercises = ExerciseCatalog.auxForSplit(snapshot.split)
+            val auxSlugs = auxExercises.map { it.slug }.toSet()
+            // Idempotent: don't re-add if aux rows already exist.
+            if (snapshot.sets.any { it.exerciseSlug in auxSlugs }) return
+            val defaults = settingsRepository.getOnboardingDefaults() ?: return
+            val history = sessionRepository.getAll()
+            inProgressRepository.addSets(buildAuxSets(auxExercises, defaults, history))
         }
-    }
-
-    /** User declined auxiliary work: go straight to the feedback sheet. */
-    fun onSkipAux() {
-        auxSkipped.value = true
     }
 
     /** Record the weekly bodyweight check-in from the Tracker prompt. */
@@ -238,11 +240,16 @@ class TrackerViewModel @Inject constructor(
                 kbWeightKg = defaults.kbWeightKg,
                 sets = sets,
             )
-            auxSkipped.value = false
+            _restStartedAtMillis.value = null
         }
     }
 
     private fun updateSet(cell: SetCell, newStatus: SetStatus) {
+        // Any resolved set — completed or failed — restarts the rest guide;
+        // reverting to pending never does.
+        if (newStatus != SetStatus.Pending) {
+            _restStartedAtMillis.value = clock.millis()
+        }
         viewModelScope.launch {
             inProgressRepository.updateSetState(
                 exerciseSlug = cell.exerciseSlug,
@@ -250,6 +257,9 @@ class TrackerViewModel @Inject constructor(
                 isPriming = cell.isPriming,
                 state = newStatus,
             )
+            if (newStatus != SetStatus.Pending) {
+                maybeAppendAux()
+            }
         }
     }
 
@@ -279,7 +289,13 @@ class TrackerViewModel @Inject constructor(
             existing.sets.none { it.exerciseSlug == m2.slug && it.isPriming && it.setIndex == 1 } -> true
             else -> false
         }
-        if (!needsFresh) return
+        if (!needsFresh) {
+            // Safety net: a kept snapshot whose main block resolved without ever
+            // gaining aux rows (app updated mid-session, or process death between
+            // the final set update and the append) would otherwise dead-end.
+            maybeAppendAux()
+            return
+        }
 
         val sets = buildBootstrapSets(expectedSplit, defaults, history)
         inProgressRepository.start(
@@ -288,7 +304,7 @@ class TrackerViewModel @Inject constructor(
             kbWeightKg = defaults.kbWeightKg,
             sets = sets,
         )
-        auxSkipped.value = false
+        _restStartedAtMillis.value = null
     }
 
     private fun buildBootstrapSets(
@@ -376,7 +392,6 @@ class TrackerViewModel @Inject constructor(
         defaults: OnboardingDefaults,
         bodyweight: BodyweightState,
         snooze: KbBumpSnooze?,
-        auxSkipped: Boolean,
     ): TrackerUiState.Ready {
         val (m1, m2) = movementOrder(history, snapshot.split)
         // Rep scheme keys on the snapshot weight so the labels always agree with
@@ -388,14 +403,14 @@ class TrackerViewModel @Inject constructor(
         val strengthAllResolved = strengthRows.all { row -> row.isResolved() }
         val mainResolved = kbBlock.circuits.isNotEmpty() && kbAllResolved && strengthAllResolved
 
-        // Aux rows appear only once the user opts in; presence drives the phase.
+        // Aux rows are appended automatically once main resolves (maybeAppendAux);
+        // their presence drives the phase.
         val auxRows = snapshot.sets.toStrengthRows(ExerciseCatalog.auxForSplit(snapshot.split), bodyweight.kg)
         val auxPresent = auxRows.isNotEmpty()
         val auxResolved = auxPresent && auxRows.all { row -> row.isResolved() }
 
         val phase = if (auxPresent) TrackerPhase.AUX else TrackerPhase.MAIN
-        val showAuxPrompt = phase == TrackerPhase.MAIN && mainResolved && !auxSkipped
-        val feedbackReady = (mainResolved && auxSkipped) || auxResolved
+        val feedbackReady = auxResolved
 
         val noKbTouched = kbBlock.circuits.all { it.status == SetStatus.Pending }
         // Prompt keys on the settings weight (not the snapshot) so accepting a
@@ -431,7 +446,6 @@ class TrackerViewModel @Inject constructor(
             isFirstSession = history.isEmpty(),
             phase = phase,
             aux = auxRows,
-            showAuxPrompt = showAuxPrompt,
             feedbackReady = feedbackReady,
             bodyweightPrompt = bodyweightPrompt,
             currentBodyweightKg = bodyweight.kg,
