@@ -8,7 +8,6 @@ import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.Session
 import com.kbminisplit.domain.model.SetEntry
 import com.kbminisplit.domain.model.SetStatus
-import com.kbminisplit.domain.model.Split
 import java.time.LocalDate
 
 fun SetEntryEntity.toDomain(): SetEntry = SetEntry(
@@ -16,8 +15,10 @@ fun SetEntryEntity.toDomain(): SetEntry = SetEntry(
     setIndex = setIndex,
     isPriming = isPriming,
     targetReps = targetReps,
+    targetRepsMax = targetRepsMax,
     weightKg = weightKg,
     status = status.toEnumOrDefault(SetStatus.Pending),
+    position = position,
 )
 
 fun SetEntry.toEntity(sessionId: Long): SetEntryEntity = SetEntryEntity(
@@ -26,16 +27,22 @@ fun SetEntry.toEntity(sessionId: Long): SetEntryEntity = SetEntryEntity(
     setIndex = setIndex,
     isPriming = isPriming,
     targetReps = targetReps,
+    targetRepsMax = targetRepsMax,
     weightKg = weightKg,
     status = status.name,
+    position = position,
 )
 
 fun SessionEntity.toDomain(sets: List<SetEntryEntity>): Session = Session(
     date = LocalDate.parse(date),
-    split = split.toEnumOrDefault(Split.A),
+    dayKey = dayKey,
     feedback = feedback.toEnumOrDefault(Feedback.Green),
-    kbWeightKg = kbWeightKg,
-    sets = sets.map { it.toDomain() },
+    circuitWeightKg = circuitWeightKg,
+    // @Relation gives no ordering guarantee, so restore the order the session was
+    // performed in: movement by movement, lead-ins ahead of working sets.
+    sets = sets.sortedWith(
+        compareBy({ it.position }, { !it.isPriming }, { it.setIndex }),
+    ).map { it.toDomain() },
     bodyweightKg = bodyweightKg,
 )
 
@@ -43,9 +50,9 @@ fun SessionWithSets.toDomain(): Session = session.toDomain(sets)
 
 fun Session.toEntity(completedAt: Long): SessionEntity = SessionEntity(
     date = date.toString(),
-    split = split.name,
+    dayKey = dayKey,
     feedback = feedback.name,
-    kbWeightKg = kbWeightKg,
+    circuitWeightKg = circuitWeightKg,
     completedAt = completedAt,
     bodyweightKg = bodyweightKg,
 )

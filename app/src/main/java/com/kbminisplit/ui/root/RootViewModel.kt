@@ -5,46 +5,50 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kbminisplit.data.db.AppDatabase
-import com.kbminisplit.data.db.seedExerciseCatalog
+import com.kbminisplit.data.db.seedDefaultProgram
+import com.kbminisplit.data.db.seedExerciseRegistry
 import com.kbminisplit.data.model.BackupData
 import com.kbminisplit.data.repository.BackupRepository
+import com.kbminisplit.data.di.IoDispatcher
 import com.kbminisplit.data.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.time.Clock
 import javax.inject.Inject
 
 sealed class RootUiEvent {
     data class Message(val text: String) : RootUiEvent()
 }
 
-enum class RootRoute { Loading, Onboarding, Main }
-
 @HiltViewModel
 class RootViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val database: AppDatabase,
     private val backupRepository: BackupRepository,
+    private val clock: Clock,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
-    val route: Flow<RootRoute> =
-        settingsRepository.observeIsOnboarded().map { onboarded ->
-            if (onboarded) RootRoute.Main else RootRoute.Onboarding
-        }
+    /** True until the Program tab has been seen once; decides which tab opens first. */
+    val isFirstLaunch: Flow<Boolean> = settingsRepository.observeIsFirstLaunch()
 
     val isDarkMode: Flow<Boolean?> = settingsRepository.observeIsDarkMode()
     val hapticLevel: Flow<Int> = settingsRepository.observeHapticLevel()
 
     private val _uiEvents = MutableSharedFlow<RootUiEvent>()
     val uiEvents = _uiEvents.asSharedFlow()
+
+    fun markProgramSeen() {
+        viewModelScope.launch { settingsRepository.markProgramSeen() }
+    }
 
     fun toggleDarkMode() {
         viewModelScope.launch {
@@ -61,9 +65,9 @@ class RootViewModel @Inject constructor(
 
     fun wipeAllData() {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
+            withContext(ioDispatcher) {
                 database.clearAllTables()
-                seedExerciseCatalog(database)
+                reseed()
             }
         }
     }
@@ -72,7 +76,7 @@ class RootViewModel @Inject constructor(
         viewModelScope.launch {
             val backupData = backupRepository.getBackupData()
             val json = Json.encodeToString(backupData)
-            withContext(Dispatchers.IO) {
+            withContext(ioDispatcher) {
                 contentResolver.openOutputStream(uri)?.use { outputStream ->
                     outputStream.write(json.toByteArray())
                 }
@@ -83,7 +87,7 @@ class RootViewModel @Inject constructor(
     fun importData(contentResolver: ContentResolver, uri: Uri) {
         viewModelScope.launch {
             try {
-                val json = withContext(Dispatchers.IO) {
+                val json = withContext(ioDispatcher) {
                     contentResolver.openInputStream(uri)?.use { inputStream ->
                         inputStream.bufferedReader().use { it.readText() }
                     }
@@ -92,9 +96,11 @@ class RootViewModel @Inject constructor(
                     return@launch
                 }
                 val backupData = Json.decodeFromString<BackupData>(json)
-                withContext(Dispatchers.IO) {
+                withContext(ioDispatcher) {
                     backupRepository.restoreBackupData(backupData)
-                    seedExerciseCatalog(database) // Ensure exercise catalog is present after restore
+                    // A backup taken before programs existed carries no days, so
+                    // rebuild the default one from whatever settings it restored.
+                    reseed()
                 }
                 _uiEvents.emit(RootUiEvent.Message("Data imported successfully"))
             } catch (e: Exception) {
@@ -102,5 +108,11 @@ class RootViewModel @Inject constructor(
                 _uiEvents.emit(RootUiEvent.Message("Import failed: ${e.message ?: "Unknown error"}"))
             }
         }
+    }
+
+    /** Restores the registry and, only if no program survived, the default one. */
+    private suspend fun reseed() {
+        seedExerciseRegistry(database)
+        seedDefaultProgram(database, clock.millis())
     }
 }

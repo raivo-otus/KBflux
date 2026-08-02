@@ -1,86 +1,149 @@
 package com.kbminisplit.ui.mapper
 
-import com.kbminisplit.domain.model.Exercise
-import com.kbminisplit.domain.model.ExerciseCatalog
 import com.kbminisplit.domain.model.ExerciseMechanic
-import com.kbminisplit.domain.model.SetEntry
-import com.kbminisplit.domain.model.Split
+import com.kbminisplit.domain.model.InProgressSet
+import com.kbminisplit.domain.model.ProgramItem
+import com.kbminisplit.domain.model.SetStatus
 import com.kbminisplit.domain.progression.PRIME_FRACTION
+import com.kbminisplit.domain.progression.ResolvedDay
+import com.kbminisplit.domain.progression.ResolvedGroup
 import com.kbminisplit.domain.progression.WARMUP_FRACTION
 import com.kbminisplit.domain.progression.acclimatizationFloorKg
 import com.kbminisplit.domain.progression.acclimatizationLoadKg
+import com.kbminisplit.domain.progression.bumpedWeightKg
+import com.kbminisplit.domain.progression.canBump
 import com.kbminisplit.domain.progression.effectiveLoadKg
-import com.kbminisplit.ui.tracker.KbBlock
-import com.kbminisplit.ui.tracker.KbMovementLabel
+import com.kbminisplit.domain.progression.nextKbWeight
+import com.kbminisplit.domain.progression.shouldPromptCircuitBump
+import com.kbminisplit.ui.tracker.BumpState
+import com.kbminisplit.ui.tracker.CircuitBumpState
+import com.kbminisplit.ui.tracker.CircuitMovement
+import com.kbminisplit.ui.tracker.GroupBlock
+import com.kbminisplit.ui.tracker.MovementRow
 import com.kbminisplit.ui.tracker.SetCell
-import com.kbminisplit.ui.tracker.StrengthMovementRow
-
-/** The circuit cells tracked under the [ExerciseCatalog.KbFlow] sentinel slug. */
-fun List<SetEntry>.toKbCircuits(): List<SetCell> =
-    filter { it.exerciseSlug == ExerciseCatalog.KbFlow.slug }
-        .sortedBy { it.setIndex }
-        .map { it.toCell() }
 
 /**
- * KB section for the Tracker: the split's themed movements labelled with the
- * positional [repScheme] (spec §2.2, ramped per §9.3), plus the circuit cells.
+ * Turns today's resolved plan plus the live in-progress rows into the blocks the
+ * Tracker renders.
+ *
+ * A group with no rows yet is skipped rather than rendered empty — that is how a
+ * deferred group stays hidden until the earlier work is done.
  */
-fun List<SetEntry>.toKbBlock(split: Split, repScheme: List<Int>): KbBlock =
-    KbBlock(
-        movements = ExerciseCatalog.kbFlowForSplit(split).zip(repScheme) { exercise, reps ->
-            KbMovementLabel(
-                exercise = exercise,
-                repsLabel = if (exercise.isPerSide) "$reps/side" else "$reps",
-            )
-        },
-        circuits = toKbCircuits(),
-    )
-
-fun List<SetEntry>.toStrengthRows(
-    exercises: List<Exercise>,
-    bodyweightKg: Double? = null,
-): List<StrengthMovementRow> {
-    val setsBySlug = groupBy { it.exerciseSlug }
-    return exercises.mapNotNull { exercise ->
-        val all = setsBySlug[exercise.slug].orEmpty()
-        // Prime and Warm-up are both priming rows, ordered by setIndex (0 = prime,
-        // 1 = warm-up). Historical sessions may have only the prime.
-        val priming = all.filter { it.isPriming }.sortedBy { it.setIndex }
-        val primeEntry = priming.firstOrNull() ?: return@mapNotNull null
-        val warmupEntry = priming.getOrNull(1)
-        val working = all.filter { !it.isPriming }.sortedBy { it.setIndex }
-        val reference = working.firstOrNull() ?: return@mapNotNull null
-        // Effective load only applies to assisted movements and only once a
-        // bodyweight is known — otherwise the subtext is simply omitted.
-        val effectiveLoad = bodyweightKg
-            ?.takeIf { exercise.mechanic == ExerciseMechanic.ASSISTED }
-            ?.let { effectiveLoadKg(exercise.mechanic, reference.weightKg, it) }
-        // Acclimatization loads shown inside the circles, derived from the working
-        // weight. When assisted with no bodyweight yet, fall back to the working pin.
-        val floor = acclimatizationFloorKg(exercise)
-        val primeKg = acclimatizationLoadKg(
-            exercise.mechanic, reference.weightKg, PRIME_FRACTION, floor, bodyweightKg,
-        ) ?: reference.weightKg
-        val warmupKg = acclimatizationLoadKg(
-            exercise.mechanic, reference.weightKg, WARMUP_FRACTION, floor, bodyweightKg,
-        ) ?: reference.weightKg
-        StrengthMovementRow(
-            exercise = exercise,
-            weightKg = reference.weightKg,
-            targetReps = reference.targetReps
-                ?: error("Strength working set missing targetReps (${exercise.slug})"),
-            prime = primeEntry.toCell().copy(weightKg = primeKg),
-            warmup = warmupEntry?.toCell()?.copy(weightKg = warmupKg),
-            working = working.map { it.toCell() },
-            effectiveLoadKg = effectiveLoad,
-        )
+fun buildGroupBlocks(
+    day: ResolvedDay,
+    sets: List<InProgressSet>,
+    bodyweightKg: Double?,
+    nowMillis: Long,
+): List<GroupBlock> {
+    val setsByGroup = sets.groupBy { it.programGroupId }
+    return day.groups.mapNotNull { resolved ->
+        val groupSets = setsByGroup[resolved.group.id].orEmpty()
+        if (groupSets.isEmpty()) return@mapNotNull null
+        if (resolved.group.isCircuit) {
+            resolved.toCircuitBlock(groupSets, nowMillis)
+        } else {
+            resolved.toStandardBlock(groupSets, bodyweightKg)
+        }
     }
 }
 
-fun SetEntry.toCell() = SetCell(
-    exerciseSlug = exerciseSlug,
-    setIndex = setIndex,
-    isPriming = isPriming,
-    status = status,
-    weightKg = weightKg,
-)
+private fun ResolvedGroup.toCircuitBlock(
+    groupSets: List<InProgressSet>,
+    nowMillis: Long,
+): GroupBlock.Circuit {
+    val rounds = groupSets
+        .filter { it.isCircuitRound }
+        .sortedBy { it.setIndex }
+        .map { it.toCell() }
+    val weightKg = rounds.firstOrNull()?.weightKg ?: group.weightKg ?: 0.0
+    val nextRung = group.weightKg?.let { nextKbWeight(it) }
+    return GroupBlock.Circuit(
+        groupId = group.id,
+        name = group.name,
+        weightKg = weightKg,
+        movements = items.map {
+            CircuitMovement(name = it.name, repsLabel = it.repsLabel())
+        },
+        rounds = rounds,
+        // Only offer the bell change before the first round is touched — swapping
+        // bells mid-circuit would invalidate the rounds already logged.
+        bump = if (
+            nextRung != null &&
+            rounds.all { it.status == SetStatus.Pending } &&
+            shouldPromptCircuitBump(group, nowMillis)
+        ) {
+            CircuitBumpState(currentKg = group.weightKg ?: weightKg, targetKg = nextRung)
+        } else {
+            null
+        },
+    )
+}
+
+private fun ResolvedGroup.toStandardBlock(
+    groupSets: List<InProgressSet>,
+    bodyweightKg: Double?,
+): GroupBlock.Standard {
+    val setsByItem = groupSets.groupBy { it.programItemId }
+    return GroupBlock.Standard(
+        groupId = group.id,
+        name = group.name,
+        movements = items.mapNotNull { item ->
+            item.toMovementRow(setsByItem[item.id].orEmpty(), bodyweightKg)
+        },
+    )
+}
+
+private fun ProgramItem.toMovementRow(
+    itemSets: List<InProgressSet>,
+    bodyweightKg: Double?,
+): MovementRow? {
+    val working = itemSets.filter { !it.isPriming }.sortedBy { it.setIndex }
+    val reference = working.firstOrNull() ?: return null
+    // Lead-ins are ordered by setIndex: 0 = prime, 1 = warm-up.
+    val leadIn = itemSets.filter { it.isPriming }.sortedBy { it.setIndex }
+
+    // Effective load only applies to assisted movements and only once a bodyweight
+    // is known — otherwise the subtext is simply omitted.
+    val effectiveLoad = bodyweightKg
+        ?.takeIf { mechanic == ExerciseMechanic.ASSISTED }
+        ?.let { effectiveLoadKg(mechanic, reference.weightKg, it) }
+
+    // Acclimatization loads shown inside the circles, derived from the working
+    // weight. When assisted with no bodyweight yet, fall back to the working pin.
+    val floor = acclimatizationFloorKg(reference.weightKg)
+    val leadInCells = leadIn.map { entry ->
+        // With a single lead-in set it should be the warm-up (the heavier one),
+        // not the prime, so the fraction follows the count rather than the index.
+        val fraction = if (leadIn.size == 1 || entry.setIndex > 0) WARMUP_FRACTION else PRIME_FRACTION
+        val circleKg = acclimatizationLoadKg(
+            mechanic, reference.weightKg, fraction, floor, bodyweightKg,
+        ) ?: reference.weightKg
+        entry.toCell().copy(weightKg = circleKg)
+    }
+
+    val sessionKg = reference.weightKg
+    val allCompleted = working.all { it.status == SetStatus.Completed }
+    val isArmed = currentWeightKg != sessionKg
+
+    return MovementRow(
+        programItemId = id,
+        name = name,
+        weightKg = sessionKg,
+        repRangeLabel = repsLabel(),
+        leadIn = leadInCells,
+        working = working.map { it.toCell() },
+        effectiveLoadKg = effectiveLoad,
+        bump = when {
+            !allCompleted -> null
+            isArmed -> BumpState(targetKg = currentWeightKg, isArmed = true)
+            !canBump(this) -> null
+            else -> BumpState(targetKg = bumpedWeightKg(this), isArmed = false)
+        },
+    )
+}
+
+/** "8–12", or "8–12/side" for a movement counted one side at a time. */
+private fun ProgramItem.repsLabel(): String =
+    if (isPerSide) "$repRangeLabel/side" else repRangeLabel
+
+fun InProgressSet.toCell() = SetCell(id = id, status = status, weightKg = weightKg)

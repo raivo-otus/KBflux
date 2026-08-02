@@ -1,5 +1,6 @@
 package com.kbminisplit.data.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -34,7 +35,20 @@ data class SetEntryEntity(
     val exerciseSlug: String,
     val setIndex: Int,
     val isPriming: Boolean,
+    /** Low end of the rep range; null for circuit rounds. */
     val targetReps: Int?,
+    /**
+     * High end of the rep range. Null on sessions logged before rep ranges
+     * existed, which render as the single [targetReps] number.
+     */
+    @ColumnInfo(defaultValue = "NULL")
+    val targetRepsMax: Int? = null,
     val weightKg: Double,
     val status: String,
+    /**
+     * The movement's ordinal within the session as actually performed, i.e. after
+     * group rotation. The Log orders by this rather than by a fixed catalog order.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val position: Int = 0,
 )

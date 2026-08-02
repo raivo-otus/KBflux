@@ -1,43 +1,43 @@
 # KBminisplit
 
-A minimalist, high-opinion strength training tracker for a specific Kettlebell + Barbell/Dumbbell program.
+A minimalist, high-opinion strength training tracker. It ships with a kettlebell
++ barbell split, and lets you rewrite that split from inside the app.
 
 ## Philosophy
 
-- **One Big Number**: Focus on one key metric per movement (weight) and one target reps goal.
-- **Low Friction**: Tracking is done via large buttons with gestures. Single tap for success, double tap for failure.
-- **Auto-Progression**: The app calculates your next workout based on your history. No manual entry of "what did I do last time?".
-- **Feedback-Driven**: After each session, you rate how it felt. This influences future prescriptions.
+- **Low Friction**: Tracking is large buttons and gestures. Single tap for a completed set, double tap for a failed one, long press to undo.
+- **Your Programming**: Days, blocks, movements, sets, rep ranges, increments — all editable in the Program tab.
+- **You Move the Weight**: Reps are a range, not a target. Complete every set and the app *offers* the next weight up; fail one and nothing changes. Train to failure, then milk the weight until you clear it again.
+- **Feedback-Driven**: After each session you rate how it felt, and that colours the calendar.
+
+## Features
+
+- **Tracker** — today's session, built from your program. Movements inside a block rotate each cycle so the same lift is never permanently last; a block can stay hidden until the earlier work is done.
+- **Log** — a calendar grid coloured by session feedback; tap a day to replay it exactly as performed.
+- **Program** — the whole split, editable in place: add days, group movements into blocks, set rep ranges, increments, lead-in sets, assisted movements.
+- Kettlebell circuits track rounds and can climb the bell ladder with a prompt every three months.
+- A rest-week prompt after 24 logged sessions, which deloads every movement one increment.
+- Robust state restoration (app-kill safe), and JSON backup/restore.
 
 ## Tech Stack
 
-- **UI**: Jetpack Compose (Material 3)
-- **Architecture**: MVVM with Clean Architecture principles (Domain/Data/UI split)
+- **UI**: Jetpack Compose (Material 3), monochrome palette
+- **Architecture**: MVVM with a Domain/Data/UI split
 - **Dependency Injection**: Hilt
 - **Database**: Room
-- **Charts**: custom Compose `Canvas` line charts
-- **Testing**: JUnit 4, Truth, Turbine, Mockk, Compose UI Test
+- **Testing**: JUnit 4, Truth, Turbine, MockK, Compose UI Test, Room `MigrationTestHelper`
 
 ## Build Instructions
 
 ### Prerequisites
 - Android Studio Ladybug (or newer)
-- JDK 17+
+- JDK 21 (the Gradle daemon is pinned to the JetBrains Runtime)
 
 ### Steps
 1. Clone the repository.
 2. Open the project in Android Studio.
 3. Sync Gradle.
 4. Run the `app` module on an emulator or a real device (min SDK 26).
-
-## Implementation Status
-
-Currently in Phase 8 (Polish & Verification). Core features are implemented:
-- Onboarding for starting weights.
-- Daily Tracker with auto-prescriptions.
-- Log tab with calendar-like view.
-- Progression tab with 8-week weight charts.
-- Robust state restoration (app-kill safe).
 
 ## Spec
 

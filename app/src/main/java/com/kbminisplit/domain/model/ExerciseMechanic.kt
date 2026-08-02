@@ -10,8 +10,7 @@ package com.kbminisplit.domain.model
  *    *subtracted* from bodyweight). Getting stronger means needing *less*
  *    assistance, so progression decrements the pin toward zero.
  *
- * Static per movement — a property of the exercise, like [Exercise.isPerSide].
- * Lives on the catalog/domain model only; the engine is always fed [Exercise]s
- * built from [ExerciseCatalog], so this never needs a database column.
+ * Derived from [ProgramItem.isAssisted] rather than stored, so the acclimatization
+ * and effective-load helpers can take a mechanic without knowing about programs.
  */
 enum class ExerciseMechanic { TRADITIONAL, ASSISTED }

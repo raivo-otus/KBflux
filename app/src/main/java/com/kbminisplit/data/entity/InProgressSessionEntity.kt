@@ -9,8 +9,7 @@ import kotlinx.serialization.Serializable
 data class InProgressSessionEntity(
     @PrimaryKey val id: Int = SINGLETON_ID,
     val date: String,
-    val split: String,
-    val kbWeightKg: Double,
+    val dayKey: String,
 ) {
     companion object {
         const val SINGLETON_ID = 0

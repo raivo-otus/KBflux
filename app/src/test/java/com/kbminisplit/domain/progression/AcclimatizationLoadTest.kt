@@ -1,7 +1,6 @@
 package com.kbminisplit.domain.progression
 
 import com.google.common.truth.Truth.assertThat
-import com.kbminisplit.domain.model.ExerciseCatalog
 import com.kbminisplit.domain.model.ExerciseMechanic
 import org.junit.Test
 
@@ -23,11 +22,11 @@ class AcclimatizationLoadTest {
     // ---- floors ----
 
     @Test
-    fun `main lifts floor at 20 and auxiliaries at 5`() {
-        assertThat(acclimatizationFloorKg(ExerciseCatalog.Bench)).isEqualTo(20.0)
-        assertThat(acclimatizationFloorKg(ExerciseCatalog.HighBarSquat)).isEqualTo(20.0)
-        assertThat(acclimatizationFloorKg(ExerciseCatalog.BicepCurl)).isEqualTo(5.0)
-        assertThat(acclimatizationFloorKg(ExerciseCatalog.SideDeltFly)).isEqualTo(5.0)
+    fun `the floor is 20kg for a real lift and the working weight for a light one`() {
+        assertThat(acclimatizationFloorKg(60.0)).isEqualTo(20.0)
+        assertThat(acclimatizationFloorKg(20.0)).isEqualTo(20.0)
+        assertThat(acclimatizationFloorKg(6.0)).isEqualTo(6.0)
+        assertThat(acclimatizationFloorKg(0.0)).isEqualTo(0.0)
     }
 
     // ---- traditional lifts ----
@@ -42,21 +41,22 @@ class AcclimatizationLoadTest {
     }
 
     @Test
-    fun `traditional lead-in is floored for light main lifts`() {
+    fun `traditional lead-in is floored for light lifts`() {
         // 50% of 30 is 15 → floored to 20; 75% is 22.5 → above the floor.
-        val prime = acclimatizationLoadKg(traditional, 30.0, PRIME_FRACTION, 20.0, bodyweightKg = null)
-        val warmup = acclimatizationLoadKg(traditional, 30.0, WARMUP_FRACTION, 20.0, bodyweightKg = null)
+        val floor = acclimatizationFloorKg(30.0)
+        val prime = acclimatizationLoadKg(traditional, 30.0, PRIME_FRACTION, floor, bodyweightKg = null)
+        val warmup = acclimatizationLoadKg(traditional, 30.0, WARMUP_FRACTION, floor, bodyweightKg = null)
         assertThat(prime).isEqualTo(20.0)
         assertThat(warmup).isEqualTo(22.5)
     }
 
     @Test
-    fun `traditional auxiliary uses the lower 5kg floor`() {
-        // 50% of 10 is 5 (at floor); 75% is 7.5.
-        val prime = acclimatizationLoadKg(traditional, 10.0, PRIME_FRACTION, 5.0, bodyweightKg = null)
-        val warmup = acclimatizationLoadKg(traditional, 10.0, WARMUP_FRACTION, 5.0, bodyweightKg = null)
-        assertThat(prime).isEqualTo(5.0)
-        assertThat(warmup).isEqualTo(7.5)
+    fun `a movement lighter than the floor gets no ramp at all`() {
+        // The derived floor equals the working weight, so both lead-ins collapse
+        // onto it. Such a movement is normally programmed with no lead-in sets.
+        val floor = acclimatizationFloorKg(6.0)
+        val prime = acclimatizationLoadKg(traditional, 6.0, PRIME_FRACTION, floor, bodyweightKg = null)
+        assertThat(prime).isEqualTo(6.0)
     }
 
     @Test
@@ -65,7 +65,7 @@ class AcclimatizationLoadTest {
         // rather than prescribing something heavier.
         val prime = acclimatizationLoadKg(traditional, 20.0, PRIME_FRACTION, 20.0, bodyweightKg = null)
         assertThat(prime).isEqualTo(20.0)
-        // Bodyweight movement (0 kg working): shows 0, not the 5 kg floor.
+        // Bodyweight movement (0 kg working): shows 0, never a positive floor.
         val zero = acclimatizationLoadKg(traditional, 0.0, PRIME_FRACTION, 5.0, bodyweightKg = null)
         assertThat(zero).isEqualTo(0.0)
     }

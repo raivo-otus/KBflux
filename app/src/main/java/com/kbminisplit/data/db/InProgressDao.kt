@@ -18,10 +18,12 @@ abstract class InProgressDao {
     @Query("SELECT * FROM in_progress_session WHERE id = ${InProgressSessionEntity.SINGLETON_ID}")
     abstract suspend fun getSession(): InProgressSessionEntity?
 
-    @Query("SELECT * FROM in_progress_set ORDER BY exerciseSlug, isPriming DESC, setIndex ASC")
+    // Session order: movements in the order they were programmed for today (after
+    // rotation), then prime and warm-up ahead of the working sets.
+    @Query("SELECT * FROM in_progress_set ORDER BY position ASC, isPriming DESC, setIndex ASC")
     abstract fun observeSets(): Flow<List<InProgressSetEntity>>
 
-    @Query("SELECT * FROM in_progress_set ORDER BY exerciseSlug, isPriming DESC, setIndex ASC")
+    @Query("SELECT * FROM in_progress_set ORDER BY position ASC, isPriming DESC, setIndex ASC")
     abstract suspend fun getSets(): List<InProgressSetEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -30,22 +32,19 @@ abstract class InProgressDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertSets(sets: List<InProgressSetEntity>)
 
-    @Query("UPDATE in_progress_set SET state = :state WHERE exerciseSlug = :exerciseSlug AND setIndex = :setIndex AND isPriming = :isPriming")
-    abstract suspend fun updateState(
-        exerciseSlug: String,
-        setIndex: Int,
-        isPriming: Boolean,
-        state: String,
+    @Query("UPDATE in_progress_set SET state = :state WHERE id = :id")
+    abstract suspend fun updateState(id: Long, state: String)
+
+    /** Mid-session weight correction for one movement, across all of its sets. */
+    @Query("UPDATE in_progress_set SET weightKg = :weightKg WHERE programItemId = :programItemId")
+    abstract suspend fun updateItemWeight(programItemId: Long, weightKg: Double)
+
+    /** Mid-session weight correction for a circuit group's round rows. */
+    @Query(
+        "UPDATE in_progress_set SET weightKg = :weightKg " +
+            "WHERE programGroupId = :programGroupId AND programItemId = 0",
     )
-
-    @Query("UPDATE in_progress_session SET kbWeightKg = :kbWeightKg WHERE id = ${InProgressSessionEntity.SINGLETON_ID}")
-    abstract suspend fun updateKbWeight(kbWeightKg: Double)
-
-    @Query("UPDATE in_progress_set SET weightKg = :weightKg, targetReps = :targetReps WHERE exerciseSlug = :exerciseSlug")
-    abstract suspend fun updateExerciseWeightAndReps(exerciseSlug: String, weightKg: Double, targetReps: Int?)
-
-    @Query("UPDATE in_progress_set SET weightKg = :weightKg WHERE exerciseSlug = :exerciseSlug")
-    abstract suspend fun updateExerciseWeight(exerciseSlug: String, weightKg: Double)
+    abstract suspend fun updateCircuitWeight(programGroupId: Long, weightKg: Double)
 
     @Query("DELETE FROM in_progress_set")
     abstract suspend fun deleteAllSets()

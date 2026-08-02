@@ -5,45 +5,44 @@ import androidx.lifecycle.viewModelScope
 import com.kbminisplit.data.repository.BodyweightState
 import com.kbminisplit.data.repository.InProgressRepository
 import com.kbminisplit.data.repository.InProgressSnapshot
+import com.kbminisplit.data.repository.ProgramRepository
 import com.kbminisplit.data.repository.SessionRepository
 import com.kbminisplit.data.repository.SettingsRepository
-import com.kbminisplit.domain.model.Exercise
-import com.kbminisplit.domain.model.ExerciseCatalog
 import com.kbminisplit.domain.model.ExerciseMechanic
 import com.kbminisplit.domain.model.Feedback
-import com.kbminisplit.domain.model.OnboardingDefaults
-import com.kbminisplit.domain.model.Prescription
+import com.kbminisplit.domain.model.InProgressSet
+import com.kbminisplit.domain.model.Program
+import com.kbminisplit.domain.model.ProgramDay
+import com.kbminisplit.domain.model.ProgramGroup
+import com.kbminisplit.domain.model.ProgramItem
 import com.kbminisplit.domain.model.Session
-import com.kbminisplit.domain.model.SetEntry
 import com.kbminisplit.domain.model.SetStatus
-import com.kbminisplit.domain.model.Split
-import com.kbminisplit.domain.progression.KbBumpSnooze
+import com.kbminisplit.domain.progression.ResolvedDay
+import com.kbminisplit.domain.progression.RestWeekState
+import com.kbminisplit.domain.progression.bumpedWeightKg
+import com.kbminisplit.domain.progression.dayCycleCount
 import com.kbminisplit.domain.progression.isBodyweightStale
-import com.kbminisplit.domain.progression.kbRepScheme
-import com.kbminisplit.domain.progression.movementOrder
+import com.kbminisplit.domain.progression.nextDay
 import com.kbminisplit.domain.progression.nextKbWeight
-import com.kbminisplit.domain.progression.nextSplit
-import com.kbminisplit.domain.progression.getPrescription
-import com.kbminisplit.domain.progression.shouldPromptKbBump
-import com.kbminisplit.ui.mapper.toKbBlock
-import com.kbminisplit.ui.mapper.toStrengthRows
+import com.kbminisplit.domain.progression.resolveDay
+import com.kbminisplit.domain.progression.shouldPromptRestWeek
+import com.kbminisplit.ui.mapper.buildGroupBlocks
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Clock
 import java.time.LocalDate
-import java.time.YearMonth
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
@@ -52,22 +51,26 @@ sealed interface TrackerEvent {
 }
 
 /**
- * Drives the Tracker tab. Owns three flows of truth:
+ * Drives the Tracker tab. Four flows of truth:
  *
+ *  - `ProgramRepository.observeProgram()` — what to do today
  *  - `InProgressRepository.observe()` — live button state (mid-session persistence)
- *  - `SessionRepository.observeAll()` — committed history (feeds progression)
- *  - `SettingsRepository.observeOnboardingDefaults()` + `observeKbBumpSnooze()` —
- *    onboarding baseline + KB-bump snooze
+ *  - `SessionRepository.observeAll()` — committed history (day turnover + rotation)
+ *  - `SettingsRepository` — bodyweight and the rest-week counters
  *
  * On init it bootstraps an in-progress row if one is missing or stale (different
- * date or different expected split). After a session is committed the same
- * routine fires so the next day's prescription appears immediately.
+ * date, different day, or a program edit that changed today's movements). After a
+ * session is committed the same routine fires so the next day appears immediately.
+ *
+ * Nothing here derives a weight from history: a movement's weight is whatever the
+ * program says it is, and it only ever changes because the user changed it.
  */
 @HiltViewModel
 class TrackerViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val settingsRepository: SettingsRepository,
     private val inProgressRepository: InProgressRepository,
+    private val programRepository: ProgramRepository,
     private val clock: Clock,
 ) : ViewModel() {
 
@@ -82,14 +85,19 @@ class TrackerViewModel @Inject constructor(
     private val _restStartedAtMillis = MutableStateFlow<Long?>(null)
     val restStartedAtMillis: StateFlow<Long?> = _restStartedAtMillis.asStateFlow()
 
-    // Serializes the aux append so racing final taps wait instead of skipping.
-    private val auxMutex = Mutex()
+    // Serializes revealing deferred groups so racing final taps wait instead of skipping.
+    private val revealMutex = Mutex()
 
     private val historyFlow = sessionRepository.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private val defaultsFlow = settingsRepository.observeOnboardingDefaults()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    private val programFlow = programRepository.observeProgram()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Program.EMPTY)
+
+    /** The days available to jump to from the admin gesture. */
+    val days: StateFlow<List<ProgramDay>> = programFlow
+        .map { it.days }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val bodyweightFlow = settingsRepository.observeBodyweight()
         .stateIn(viewModelScope, SharingStarted.Eagerly, BodyweightState(null, null))
@@ -97,24 +105,28 @@ class TrackerViewModel @Inject constructor(
     val state: StateFlow<TrackerUiState> = combine(
         inProgressRepository.observe(),
         historyFlow,
-        // Nested pair: onboarding defaults + bodyweight both originate from settings.
-        combine(defaultsFlow, bodyweightFlow) { defaults, bodyweight -> defaults to bodyweight },
-        settingsRepository.observeKbBumpSnooze(),
-    ) { inProgress, history, defaultsAndBodyweight, snooze ->
-        val (defaults, bodyweight) = defaultsAndBodyweight
-        if (defaults == null || inProgress == null) {
-            TrackerUiState.Loading
-        } else {
-            buildReady(inProgress, history, defaults, bodyweight, snooze)
+        programFlow,
+        bodyweightFlow,
+        settingsRepository.observeRestWeek(),
+    ) { inProgress, history, program, bodyweight, restWeek ->
+        when {
+            program.isEmpty -> TrackerUiState.NoProgram
+            inProgress == null -> TrackerUiState.Loading
+            else -> buildReady(inProgress, history, program, bodyweight, restWeek)
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, TrackerUiState.Loading)
 
     init {
         viewModelScope.launch {
-            // Wait for defaults to be available before attempting first bootstrap.
-            // This prevents a race where init runs before the database is seeded or onboarded.
-            defaultsFlow.filterNotNull().first()
-            bootstrapIfNeeded()
+            // Re-bootstrap whenever the *shape* of the program changes, so an edit
+            // made in the Program tab shows up on the Tracker immediately rather
+            // than tomorrow. Keying on structure rather than the whole program
+            // means a weight change — including the bump chip's own write — does
+            // not churn the session.
+            programFlow
+                .map { it.structureKey() }
+                .distinctUntilChanged()
+                .collect { bootstrapIfNeeded() }
         }
     }
 
@@ -122,20 +134,86 @@ class TrackerViewModel @Inject constructor(
     fun onSetDoubleTap(cell: SetCell) = updateSet(cell, SetStatus.Failed)
     fun onSetLongPress(cell: SetCell) = updateSet(cell, SetStatus.Pending)
 
-    fun onKbWeightChange(newKg: Double) {
+    /**
+     * Mid-session weight correction. Writes both the live rows and the program, so
+     * the change applies to the set you are about to do *and* to next time.
+     */
+    fun onMovementWeightChange(programItemId: Long, newKg: Double) {
         viewModelScope.launch {
-            inProgressRepository.updateKbWeight(newKg)
-            inProgressRepository.updateExerciseWeight(ExerciseCatalog.KbFlow.slug, newKg, null)
-            settingsRepository.updateKbWeight(newKg)
+            inProgressRepository.updateItemWeight(programItemId, newKg)
+            programRepository.setItemWeight(programItemId, newKg)
         }
     }
 
-    fun onExerciseWeightChange(exerciseSlug: String, newKg: Double) {
+    fun onCircuitWeightChange(programGroupId: Long, newKg: Double) {
         viewModelScope.launch {
-            val minReps = ExerciseCatalog.bySlug(exerciseSlug)?.minReps
-            inProgressRepository.updateExerciseWeight(exerciseSlug, newKg, minReps)
-            settingsRepository.updateStartingWeight(exerciseSlug, newKg)
+            inProgressRepository.updateCircuitWeight(programGroupId, newKg)
+            programRepository.setGroupWeight(programGroupId, newKg)
         }
+    }
+
+    /**
+     * Takes or gives back the weight bump offered on a completed movement.
+     *
+     * Only the program is written — this session keeps the weight actually lifted.
+     * "Armed" is therefore not stored anywhere: it is simply the program weight
+     * differing from the session weight, which makes the toggle its own undo.
+     */
+    fun onBumpToggle(programItemId: Long) {
+        viewModelScope.launch {
+            val item = programFlow.value.itemById(programItemId) ?: return@launch
+            val sessionKg = sessionWeightFor(programItemId) ?: return@launch
+            val target = if (item.currentWeightKg != sessionKg) {
+                sessionKg
+            } else {
+                bumpedWeightKg(item)
+            }
+            programRepository.setItemWeight(programItemId, target)
+        }
+    }
+
+    fun onCircuitBumpAccept(programGroupId: Long) {
+        if (!processing.compareAndSet(false, true)) return
+        viewModelScope.launch {
+            try {
+                val group = programFlow.value.groupById(programGroupId) ?: return@launch
+                val next = group.weightKg?.let { nextKbWeight(it) } ?: return@launch
+                programRepository.setGroupWeight(programGroupId, next)
+                inProgressRepository.updateCircuitWeight(programGroupId, next)
+            } finally {
+                processing.set(false)
+            }
+        }
+    }
+
+    fun onCircuitBumpSnooze(programGroupId: Long) {
+        viewModelScope.launch { programRepository.snoozeGroupBump(programGroupId) }
+    }
+
+    /** Record the weekly bodyweight check-in from the Tracker prompt. */
+    fun onBodyweightEntered(kg: Double) {
+        viewModelScope.launch { settingsRepository.updateBodyweight(kg) }
+    }
+
+    /** Takes the rest week: every movement drops one step and the counter resets. */
+    fun onRestWeekAccept() {
+        if (!processing.compareAndSet(false, true)) return
+        viewModelScope.launch {
+            try {
+                programRepository.deloadAllItems()
+                settingsRepository.takeRestWeek(historyFlow.value.size)
+                // Today's rows still carry the pre-deload weights; rebuild so the
+                // session in front of the user matches what was just decided.
+                inProgressRepository.clear()
+                bootstrapIfNeeded()
+            } finally {
+                processing.set(false)
+            }
+        }
+    }
+
+    fun onRestWeekSnooze() {
+        viewModelScope.launch { settingsRepository.snoozeRestWeek(historyFlow.value.size) }
     }
 
     fun onFeedback(feedback: Feedback) {
@@ -149,10 +227,10 @@ class TrackerViewModel @Inject constructor(
                 sessionRepository.addSession(
                     Session(
                         date = committedDate,
-                        split = snapshot.split,
+                        dayKey = snapshot.dayKey,
                         feedback = feedback,
-                        kbWeightKg = snapshot.kbWeightKg,
-                        sets = snapshot.sets,
+                        circuitWeightKg = primaryCircuitWeight(snapshot),
+                        sets = snapshot.sets.map { it.toSetEntry() },
                         // Snapshot current bodyweight so historical effective load
                         // stays fixed even if bodyweight is later corrected.
                         bodyweightKg = bodyweightFlow.value.kg,
@@ -167,78 +245,19 @@ class TrackerViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Appends the auxiliary block once every main set is resolved. Aux work is
-     * always part of the session (no prompt): the append fires from [updateSet]
-     * when the last main set resolves, and from [bootstrapIfNeeded] as a safety
-     * net for snapshots that resolved main without gaining aux rows (app update
-     * mid-session, process death between the resolve and the append).
-     */
-    private suspend fun maybeAppendAux() {
-        auxMutex.withLock {
-            val snapshot = inProgressRepository.get() ?: return
-            if (snapshot.sets.any { it.status == SetStatus.Pending }) return
-            val auxExercises = ExerciseCatalog.auxForSplit(snapshot.split)
-            val auxSlugs = auxExercises.map { it.slug }.toSet()
-            // Idempotent: don't re-add if aux rows already exist.
-            if (snapshot.sets.any { it.exerciseSlug in auxSlugs }) return
-            val defaults = settingsRepository.getOnboardingDefaults() ?: return
+    /** Force today onto a specific day of the program (the admin gesture). */
+    fun forceDay(dayKey: String) {
+        viewModelScope.launch {
+            val program = programRepository.getProgram()
+            val day = program.dayByKey(dayKey) ?: return@launch
             val history = sessionRepository.getAll()
-            inProgressRepository.addSets(buildAuxSets(auxExercises, defaults, history))
-        }
-    }
-
-    /** Record the weekly bodyweight check-in from the Tracker prompt. */
-    fun onBodyweightEntered(kg: Double) {
-        viewModelScope.launch { settingsRepository.updateBodyweight(kg) }
-    }
-
-    fun onKbBumpAccept() {
-        if (!processing.compareAndSet(false, true)) return
-        viewModelScope.launch {
-            try {
-                val defaults = defaultsFlow.value ?: return@launch
-                val newKg = nextKbWeight(defaults.kbWeightKg) ?: return@launch
-                // No snooze stamp needed: the new weight has no completed sessions
-                // yet, which suppresses the prompt until 3 months pass again.
-                settingsRepository.bumpKbWeight(newKg)
-                inProgressRepository.clear()
-                bootstrapIfNeeded()
-            } finally {
-                processing.set(false)
-            }
-        }
-    }
-
-    fun onKbBumpSnooze() {
-        if (!processing.compareAndSet(false, true)) return
-        viewModelScope.launch {
-            try {
-                settingsRepository.saveKbBumpSnooze(
-                    KbBumpSnooze(
-                        snoozedAtMonth = YearMonth.from(LocalDate.now(clock)),
-                        sessionCountAtSnooze = historyFlow.value.size,
-                    ),
-                )
-            } finally {
-                processing.set(false)
-            }
-        }
-    }
-
-    fun forceSplit(split: Split) {
-        viewModelScope.launch {
-            val defaults = settingsRepository.getOnboardingDefaults() ?: return@launch
-            val history = sessionRepository.getAll()
-            val today = LocalDate.now(clock)
+            val resolved = resolveDay(day, dayCycleCount(history, day.key))
 
             inProgressRepository.clear()
-            val sets = buildBootstrapSets(split, defaults, history)
             inProgressRepository.start(
-                date = today,
-                split = split,
-                kbWeightKg = defaults.kbWeightKg,
-                sets = sets,
+                date = LocalDate.now(clock),
+                dayKey = day.key,
+                sets = buildSets(resolved, includeDeferred = false),
             )
             _restStartedAtMillis.value = null
         }
@@ -251,214 +270,284 @@ class TrackerViewModel @Inject constructor(
             _restStartedAtMillis.value = clock.millis()
         }
         viewModelScope.launch {
-            inProgressRepository.updateSetState(
-                exerciseSlug = cell.exerciseSlug,
-                setIndex = cell.setIndex,
-                isPriming = cell.isPriming,
-                state = newStatus,
-            )
-            if (newStatus != SetStatus.Pending) {
-                maybeAppendAux()
+            inProgressRepository.updateSetState(cell.id, newStatus)
+            // Completing a set can never un-complete a movement, so only the other
+            // two transitions can strand an armed bump.
+            if (newStatus != SetStatus.Completed) {
+                disarmIncompleteBumps()
             }
+            if (newStatus != SetStatus.Pending) {
+                revealDeferredGroups()
+            }
+        }
+    }
+
+    /**
+     * Gives back any bump whose movement is no longer fully completed, so undoing
+     * a set undoes the offer it produced.
+     *
+     * Only a weight that is exactly one step above the session weight is reverted,
+     * which leaves a deliberate edit made from the Program tab alone.
+     */
+    private suspend fun disarmIncompleteBumps() {
+        val snapshot = inProgressRepository.get() ?: return
+        val program = programRepository.getProgram()
+        snapshot.sets
+            .filter { !it.isPriming && !it.isCircuitRound }
+            .groupBy { it.programItemId }
+            .forEach { (itemId, working) ->
+                if (working.all { it.status == SetStatus.Completed }) return@forEach
+                val item = program.itemById(itemId) ?: return@forEach
+                val sessionKg = working.first().weightKg
+                if (item.currentWeightKg == sessionKg) return@forEach
+                val armed = bumpedWeightKg(sessionKg, item.weightStepKg, item.isAssisted)
+                if (item.currentWeightKg == armed) {
+                    programRepository.setItemWeight(itemId, sessionKg)
+                }
+            }
+    }
+
+    /**
+     * Reveals groups held back until the earlier work is done. Fires from
+     * [updateSet] when the last visible set resolves, and from
+     * [bootstrapIfNeeded] as a safety net for a snapshot that resolved without
+     * ever gaining its deferred rows (app updated mid-session, or process death
+     * between the final tap and the append).
+     */
+    private suspend fun revealDeferredGroups() {
+        revealMutex.withLock {
+            val snapshot = inProgressRepository.get() ?: return
+            if (snapshot.sets.any { it.status == SetStatus.Pending }) return
+            val resolved = resolveToday(snapshot.dayKey) ?: return
+            val presentGroups = snapshot.sets.map { it.programGroupId }.toSet()
+            val missing = resolved.groups.filter { it.group.id !in presentGroups }
+            if (missing.isEmpty()) return
+            inProgressRepository.addSets(
+                buildSets(ResolvedDay(resolved.day, missing), includeDeferred = true),
+            )
         }
     }
 
     private suspend fun bootstrapIfNeeded() {
-        val defaults = settingsRepository.getOnboardingDefaults() ?: return
+        val program = programRepository.getProgram()
+        if (program.isEmpty) {
+            inProgressRepository.clear()
+            return
+        }
         val history = sessionRepository.getAll()
         val today = LocalDate.now(clock)
-        val expectedSplit = nextSplit(history)
-        val (m1, m2) = movementOrder(history, expectedSplit)
+        val day = nextDay(history, program) ?: return
+        val resolved = resolveDay(day, dayCycleCount(history, day.key))
         val existing = inProgressRepository.get()
 
-        val needsFresh = when {
-            existing == null -> true
-            existing.date != today -> true
-            existing.split != expectedSplit -> true
-            // Schema-freshness guard: a pre-Phase-4 in-progress carries per-movement
-            // KB rows instead of three `kb_flow` rows. Rebuild rather than render
-            // an empty KB block.
-            existing.sets.none { it.exerciseSlug == ExerciseCatalog.KbFlow.slug } -> true
-            // Movement-order guard: if history changed such that the expected
-            // exercises for this split flipped or changed, rebuild.
-            existing.sets.none { it.exerciseSlug == m1.slug } -> true
-            existing.sets.none { it.exerciseSlug == m2.slug } -> true
-            // Schema-freshness guard: a pre-warm-up in-progress carries only the
-            // prime priming row (setIndex 0). Rebuild so the warm-up set appears.
-            existing.sets.none { it.exerciseSlug == m1.slug && it.isPriming && it.setIndex == 1 } -> true
-            existing.sets.none { it.exerciseSlug == m2.slug && it.isPriming && it.setIndex == 1 } -> true
-            else -> false
-        }
-        if (!needsFresh) {
-            // Safety net: a kept snapshot whose main block resolved without ever
-            // gaining aux rows (app updated mid-session, or process death between
-            // the final set update and the append) would otherwise dead-end.
-            maybeAppendAux()
+        if (!needsFreshSession(existing, today, resolved)) {
+            revealDeferredGroups()
             return
         }
 
-        val sets = buildBootstrapSets(expectedSplit, defaults, history)
         inProgressRepository.start(
             date = today,
-            split = expectedSplit,
-            kbWeightKg = defaults.kbWeightKg,
-            sets = sets,
+            dayKey = day.key,
+            sets = buildSets(resolved, includeDeferred = false),
         )
         _restStartedAtMillis.value = null
     }
 
-    private fun buildBootstrapSets(
-        split: Split,
-        defaults: OnboardingDefaults,
-        history: List<Session>,
-    ): List<SetEntry> {
-        val kbWeight = defaults.kbWeightKg
-        val (m1, m2) = movementOrder(history, split)
+    /**
+     * A stored session survives only while it still matches today's plan. A new
+     * date, a different day, or a program edit that changed which slots today
+     * needs all mean the buttons on screen no longer describe the workout.
+     */
+    private fun needsFreshSession(
+        existing: InProgressSnapshot?,
+        today: LocalDate,
+        resolved: ResolvedDay,
+    ): Boolean {
+        if (existing == null) return true
+        if (existing.date != today) return true
+        if (existing.dayKey != resolved.key) return true
+        val expected = buildSets(resolved, includeDeferred = false).map { it.slotKey }.toSet()
+        val present = existing.sets.map { it.slotKey }.toSet()
+        return !present.containsAll(expected)
+    }
+
+    /**
+     * Builds today's rows, group by group in program order.
+     *
+     * `position` is stamped from the rotated order rather than the program order,
+     * so the Log later replays the session as it was actually performed.
+     */
+    private fun buildSets(day: ResolvedDay, includeDeferred: Boolean): List<InProgressSet> {
+        var position = 0
         return buildList {
-            // KB Flow: one row per completed circuit (spec §2.2). The movement
-            // labels are display-only — set tracking is at the circuit level.
-            repeat(KB_ROUNDS) { round ->
-                add(
-                    SetEntry(
-                        exerciseSlug = ExerciseCatalog.KbFlow.slug,
-                        setIndex = round,
-                        isPriming = false,
-                        targetReps = null,
-                        weightKg = kbWeight,
-                        status = SetStatus.Pending,
-                    ),
-                )
-            }
-            listOf(m1, m2).forEach { exercise ->
-                val rx = getPrescription(history, exercise, defaults)
-                add(primeFor(exercise, rx))
-                add(warmupFor(exercise, rx))
-                repeat(STRENGTH_WORKING_SETS) { idx ->
-                    add(workingFor(exercise, rx, idx + 1))
+            day.groups.forEach { resolved ->
+                if (resolved.group.isDeferred && !includeDeferred) return@forEach
+                if (resolved.group.isCircuit) {
+                    addAll(circuitRows(resolved.group, position++))
+                } else {
+                    resolved.items.forEach { item ->
+                        addAll(movementRows(resolved.group, item, position++))
+                    }
                 }
             }
         }
     }
 
-    private fun buildAuxSets(
-        auxExercises: List<Exercise>,
-        defaults: OnboardingDefaults,
-        history: List<Session>,
-    ): List<SetEntry> = buildList {
-        auxExercises.forEach { exercise ->
-            val rx = getPrescription(history, exercise, defaults)
-            add(primeFor(exercise, rx))
-            add(warmupFor(exercise, rx))
-            repeat(STRENGTH_WORKING_SETS) { idx ->
-                add(workingFor(exercise, rx, idx + 1))
-            }
+    /** One row per round; the movements inside a circuit are labels, not buttons. */
+    private fun circuitRows(group: ProgramGroup, position: Int): List<InProgressSet> {
+        val slug = group.circuitSlug ?: return emptyList()
+        return (0 until group.rounds).map { round ->
+            blankRow(
+                groupId = group.id,
+                itemId = InProgressSet.NO_ITEM,
+                slug = slug,
+                setIndex = round,
+                isPriming = false,
+                targetReps = null,
+                targetRepsMax = null,
+                weightKg = group.weightKg ?: 0.0,
+                position = position,
+            )
         }
     }
 
-    // Prime and Warm-up are both priming rows (excluded from progression), told apart
-    // by setIndex: 0 = prime, 1 = warm-up. They store the working weight as a neutral
-    // placeholder; the acclimatization number shown in the circle is derived at display
-    // time from the working weight (and, for assisted lifts, the current bodyweight).
-    private fun primeFor(exercise: Exercise, rx: Prescription) = SetEntry(
-        exerciseSlug = exercise.slug,
-        setIndex = 0,
-        isPriming = true,
-        targetReps = null,
-        weightKg = rx.weightKg,
-        status = SetStatus.Pending,
-    )
+    /**
+     * Lead-in rows then working rows. Both lead-ins are priming rows told apart by
+     * setIndex (0 = prime, 1 = warm-up); with a single lead-in only the warm-up is
+     * built. They store the working weight as a neutral placeholder — the number
+     * shown in the circle is derived at display time.
+     */
+    private fun movementRows(
+        group: ProgramGroup,
+        item: ProgramItem,
+        position: Int,
+    ): List<InProgressSet> = buildList {
+        val leadInIndices = when (item.leadInSets.coerceIn(0, 2)) {
+            0 -> emptyList()
+            1 -> listOf(1)
+            else -> listOf(0, 1)
+        }
+        leadInIndices.forEach { setIndex ->
+            add(
+                blankRow(
+                    groupId = group.id,
+                    itemId = item.id,
+                    slug = item.exerciseSlug,
+                    setIndex = setIndex,
+                    isPriming = true,
+                    targetReps = null,
+                    targetRepsMax = null,
+                    weightKg = item.currentWeightKg,
+                    position = position,
+                ),
+            )
+        }
+        repeat(item.sets.coerceAtLeast(1)) { index ->
+            add(
+                blankRow(
+                    groupId = group.id,
+                    itemId = item.id,
+                    slug = item.exerciseSlug,
+                    setIndex = index + 1,
+                    isPriming = false,
+                    targetReps = item.minReps,
+                    targetRepsMax = item.maxReps,
+                    weightKg = item.currentWeightKg,
+                    position = position,
+                ),
+            )
+        }
+    }
 
-    private fun warmupFor(exercise: Exercise, rx: Prescription) = SetEntry(
-        exerciseSlug = exercise.slug,
-        setIndex = 1,
-        isPriming = true,
-        targetReps = null,
-        weightKg = rx.weightKg,
-        status = SetStatus.Pending,
-    )
-
-    private fun workingFor(exercise: Exercise, rx: Prescription, setIndex: Int) = SetEntry(
-        exerciseSlug = exercise.slug,
+    @Suppress("LongParameterList")
+    private fun blankRow(
+        groupId: Long,
+        itemId: Long,
+        slug: String,
+        setIndex: Int,
+        isPriming: Boolean,
+        targetReps: Int?,
+        targetRepsMax: Int?,
+        weightKg: Double,
+        position: Int,
+    ) = InProgressSet(
+        id = 0,
+        programGroupId = groupId,
+        programItemId = itemId,
+        exerciseSlug = slug,
         setIndex = setIndex,
-        isPriming = false,
-        targetReps = rx.targetReps,
-        weightKg = rx.weightKg,
+        isPriming = isPriming,
+        targetReps = targetReps,
+        targetRepsMax = targetRepsMax,
+        weightKg = weightKg,
         status = SetStatus.Pending,
+        position = position,
     )
+
+    private suspend fun resolveToday(dayKey: String): ResolvedDay? {
+        val day = programRepository.getProgram().dayByKey(dayKey) ?: return null
+        return resolveDay(day, dayCycleCount(sessionRepository.getAll(), dayKey))
+    }
+
+    private fun sessionWeightFor(programItemId: Long): Double? =
+        (state.value as? TrackerUiState.Ready)
+            ?.groups
+            ?.filterIsInstance<GroupBlock.Standard>()
+            ?.flatMap { it.movements }
+            ?.firstOrNull { it.programItemId == programItemId }
+            ?.weightKg
+
+    /** The weight snapshotted onto the session: the day's first circuit, if any. */
+    private fun primaryCircuitWeight(snapshot: InProgressSnapshot): Double =
+        snapshot.sets.firstOrNull { it.isCircuitRound }?.weightKg ?: 0.0
 
     private fun buildReady(
         snapshot: InProgressSnapshot,
         history: List<Session>,
-        defaults: OnboardingDefaults,
+        program: Program,
         bodyweight: BodyweightState,
-        snooze: KbBumpSnooze?,
-    ): TrackerUiState.Ready {
-        val (m1, m2) = movementOrder(history, snapshot.split)
-        // Rep scheme keys on the snapshot weight so the labels always agree with
-        // the "KB Flow · X kg" header, even mid-edit.
-        val kbBlock = snapshot.sets.toKbBlock(snapshot.split, kbRepScheme(history, snapshot.kbWeightKg))
-        val strengthRows = snapshot.sets.toStrengthRows(listOf(m1, m2), bodyweight.kg)
+        restWeek: RestWeekState,
+    ): TrackerUiState {
+        val day = program.dayByKey(snapshot.dayKey) ?: return TrackerUiState.Loading
+        val resolved = resolveDay(day, dayCycleCount(history, day.key))
+        val groups = buildGroupBlocks(resolved, snapshot.sets, bodyweight.kg, clock.millis())
 
-        val kbAllResolved = kbBlock.circuits.all { it.status != SetStatus.Pending }
-        val strengthAllResolved = strengthRows.all { row -> row.isResolved() }
-        val mainResolved = kbBlock.circuits.isNotEmpty() && kbAllResolved && strengthAllResolved
-
-        // Aux rows are appended automatically once main resolves (maybeAppendAux);
-        // their presence drives the phase.
-        val auxRows = snapshot.sets.toStrengthRows(ExerciseCatalog.auxForSplit(snapshot.split), bodyweight.kg)
-        val auxPresent = auxRows.isNotEmpty()
-        val auxResolved = auxPresent && auxRows.all { row -> row.isResolved() }
-
-        val phase = if (auxPresent) TrackerPhase.AUX else TrackerPhase.MAIN
-        val feedbackReady = auxResolved
-
-        val noKbTouched = kbBlock.circuits.all { it.status == SetStatus.Pending }
-        // Prompt keys on the settings weight (not the snapshot) so accepting a
-        // bump hides it immediately, before the in-progress rebuild lands.
-        val nextKb = nextKbWeight(defaults.kbWeightKg)
-        val kbBump = if (
-            noKbTouched &&
-            nextKb != null &&
-            shouldPromptKbBump(history, snapshot.date, defaults.kbWeightKg, snooze)
-        ) {
-            KbBumpState(
-                currentKg = defaults.kbWeightKg,
-                targetKg = nextKb,
-            )
-        } else {
-            null
-        }
+        // Everything programmed for today has been revealed and resolved.
+        val allRevealed = resolved.groups.size == groups.size
+        val feedbackReady = groups.isNotEmpty() && allRevealed && groups.all { it.isResolved }
 
         // Nudge for a weekly bodyweight only when it actually matters today (an
         // assisted movement is programmed) and the last check-in has gone stale.
-        val hasAssisted = strengthRows.any { it.exercise.mechanic == ExerciseMechanic.ASSISTED }
-        val bodyweightPrompt = hasAssisted &&
-            isBodyweightStale(bodyweight.loggedAtMillis, clock.millis())
+        val hasAssisted = resolved.groups
+            .flatMap { it.items }
+            .any { it.mechanic == ExerciseMechanic.ASSISTED }
 
         return TrackerUiState.Ready(
             date = snapshot.date,
-            split = snapshot.split,
-            kbWeightKg = snapshot.kbWeightKg,
-            kbBlock = kbBlock,
-            strength = strengthRows,
-            mainResolved = mainResolved,
-            kbBump = kbBump,
-            isFirstSession = history.isEmpty(),
-            phase = phase,
-            aux = auxRows,
+            dayKey = day.key,
+            dayName = day.name,
+            groups = groups,
             feedbackReady = feedbackReady,
-            bodyweightPrompt = bodyweightPrompt,
+            isFirstSession = history.isEmpty(),
+            bodyweightPrompt = hasAssisted &&
+                isBodyweightStale(bodyweight.loggedAtMillis, clock.millis()),
             currentBodyweightKg = bodyweight.kg,
+            restWeekPrompt = shouldPromptRestWeek(history.size, restWeek),
         )
     }
+}
 
-    private fun StrengthMovementRow.isResolved(): Boolean =
-        prime.status != SetStatus.Pending &&
-            (warmup?.let { it.status != SetStatus.Pending } ?: true) &&
-            working.all { it.status != SetStatus.Pending }
+/** Identifies the program slot a row fills, for comparing a stored session to today's plan. */
+private val InProgressSet.slotKey: String
+    get() = "$programGroupId/$programItemId/$setIndex/$isPriming"
 
-    companion object {
-        const val KB_ROUNDS = 3
-        const val STRENGTH_WORKING_SETS = 3
+/**
+ * Everything about a program that changes which buttons a session needs. Weights
+ * and names are deliberately absent: they change often and never require a rebuild.
+ */
+private fun Program.structureKey(): String = days.joinToString("|") { day ->
+    day.key + day.groups.joinToString(",") { group ->
+        "${group.id}/${group.kind}/${group.rotates}/${group.isDeferred}/${group.rounds}" +
+            group.items.joinToString(";") { "${it.id}/${it.sets}/${it.leadInSets}" }
     }
 }

@@ -1,82 +1,96 @@
 # KBminisplit — Specification
 
-A minimal, opinionated Android app for tracking a kettlebell-focused A/B/C workout split.
+A minimal, opinionated Android app for tracking a strength program you define yourself.
 
 ## 1. Vision & Philosophy
 
-KBminisplit is a single-purpose training tracker. It encodes one workout program — a kettlebell foundation followed by an A (pull) / B (push) / C (squat) strength rotation — and does nothing else.
+KBminisplit is a training tracker built around one idea: during a session you
+should be tapping, not typing. It ships with a kettlebell + barbell split, but
+that split is data, not code — the whole program is editable in the app.
 
 Design principles, in order of priority:
 
 1. **One screen does one thing.** No menus, no settings, no toggles unless they earn their place.
 2. **Tap, don't type.** Logging a set is a single tap. Failing a set is a double tap. No number pads during a workout.
-3. **The app decides.** Today's split, today's target reps, today's weight — all derived from history. The user lifts; the app keeps score.
+3. **You decide the programming; the app keeps score.** Which day comes next and which movement comes first are automatic. What you lift, and when it goes up, are yours.
 4. **Monochrome, with one signal.** Black, white, and grays. Color appears only as the red / yellow / green session-feedback dot.
-5. **Append-only log.** A completed session is a record, not a draft. No edit screens.
+5. **Append-only log.** A completed session is a record, not a draft. No edit screens for history.
 
-## 2. The Workout Program
+## 2. The Program
 
-Every session has the same shape: **KB Flow + one of A / B / C**. The strength portion rotates A → B → C → A …
+A program is an ordered list of **days**. Each day holds ordered **blocks**, and
+each block holds ordered **movements**. Sessions rotate through the days one per
+completed session (§9.1).
 
 ### 2.1 Warmup
 
 The commute to the gym. **Not tracked in the app.**
 
-### 2.2 KB Flow (every session)
+### 2.2 Days
 
-A circuit of three kettlebell movements, repeated three times back-to-back.
-The movements are themed to the day's split; the rep scheme is positional
-(first movement 32, second 16, third 8 at the full scheme), with per-side
-movements annotated "/side":
+A day has a name (shown on the Tracker) and a stable **key** written to every
+session logged against it. The key is generated once and never changes, so
+renaming, reordering or deleting a day leaves history intact.
 
-| Split     | First      | Second             | Third          |
-| --------- | ---------- | ------------------ | -------------- |
-| A (Pull)  | Swings 32  | High Pulls 16/side | Goblet Squat 8 |
-| B (Push)  | Swings 32  | Clean & Press 16/side | Goblet Squat 8 |
-| C (Legs)  | Swings 32  | Goblet Squat 16    | Snatch 8/side  |
+### 2.3 Blocks
 
-One kettlebell weight is used for the whole flow. (See §9.3 for KB progression.)
+Two kinds:
 
-After a weight bump the positional scheme ramps back up, advancing one stage
-per **3 completed workouts** (one full A/B/C cycle) at the new weight:
+- **Standard** — every movement gets its own lead-in and working set buttons.
+- **Circuit** — the movements are labels; one button per **round** covers the
+  whole lap. All movements share one weight. Used for the kettlebell flow.
 
-| Workouts at new weight | Scheme        |
-| ---------------------- | ------------- |
-| 1–3                    | 20 / 10 / 5   |
-| 4–6                    | 24 / 12 / 6   |
-| 7–9                    | 28 / 14 / 7   |
-| 10+                    | 32 / 16 / 8   |
+Two switches apply to either kind:
 
-The ramp stage is derived from history (the trailing run of sessions whose
-snapshotted KB weight equals the current weight), never persisted. Any weight
-change — bump, manual edit, or downgrade — restarts the ramp; a weight that
-has never changed (fresh installs) uses the full scheme.
+- **Rotates** — the movement order shifts by one every time the day comes
+  around, so nothing is permanently done last on tired arms. With two movements
+  this is a straight alternation; with N it cycles through every starting
+  position before repeating.
+- **Reveals later** — the block stays hidden until every earlier block is
+  resolved. This is the two-stage session: main work first, accessories after.
 
-The Tracker records **one set per completed circuit (3 per session)**, not
-one per movement-per-round. The movements above are reference labels in
-the section header; the user taps a single "Circuit" button after finishing
-the whole lap.
+A circuit block additionally carries its number of rounds, its shared weight, and
+an opt-in **kettlebell ladder** (§9.3).
 
-### 2.3 Strength block (one of A / B / C)
+### 2.4 Movements
 
-Two compound movements per day. Each movement is **5 sets**:
+Every parameter lives on the movement as programmed on that day, so the same
+exercise can be programmed differently on two days:
 
-- **1 priming set** — ~50% of the working weight, just to grease the movement. Not tracked for progression; tap when done.
-- **1 warm-up set** — ~75% of the working weight. Not tracked for progression; tap when done.
-- **3 working sets** — at the target weight and target reps. Tracked for progression.
-- Alternate movement order each cycle
+| Field           | Notes                                                          |
+| --------------- | -------------------------------------------------------------- |
+| name            | Display name; resolved to a stable slug for history             |
+| sets            | Number of working sets                                          |
+| rep range       | Min–max, e.g. 8–12. Shown as a range; never a moving target     |
+| weight          | The live working weight — the single source of truth            |
+| increment       | How much a bump moves it: 1, 2, 2.5, 5, 10 kg, or anything typed |
+| lead-in sets    | 0 (none), 1 (warm-up), or 2 (prime + warm-up)                   |
+| assisted        | The logged number is machine help, so progress *lowers* it      |
+| per side        | Reps are counted one side at a time ("8–12/side")               |
 
-The priming and warm-up loads are derived from the working weight (§4.3) and shown inside their circles so the target is unambiguous at the rack.
+Renaming a movement follows it everywhere it appears, including into
+already-logged history — the slug is what history stores, and it never changes.
 
-| Day | Movement 1                                | Movement 2              |
-| --- | ----------------------------------------- | ----------------------- |
-| A   | Lat Pulldown                              | Barbell Row             |
-| B   | Bench Press                               | Overhead Press          |
-| C   | High-Bar Squat                            | Romanian Deadlift (RDL) |
+### 2.5 The default program
 
-### 2.4 Cadence
+A fresh install is seeded with the three-day split the app used to hardcode, and
+an upgrading install is seeded with the same program carrying its existing
+weights, kettlebell size and rep ceiling across.
 
-Ideally daily, but the app makes no assumptions. The split simply advances one step per completed session — whenever that is.
+| Day       | Circuit (3 rounds, ladder)              | Main (rotates)                | Accessories (rotates, reveals later) |
+| --------- | --------------------------------------- | ----------------------------- | ------------------------------------ |
+| A · Pull  | Swings, High Pull /side, Goblet Squat    | Lat Pulldown, Barbell Row     | Side-Delt Flyes, Tricep Ext, Back Ext |
+| B · Push  | Swings, Clean & Press /side, Goblet Squat | Bench Press, Assisted Dips   | Side-Delt Flyes, Bicep Curls, Back Ext |
+| C · Legs  | Swings, Goblet Squat, Snatch /side       | High-Bar Squat, RDL           | Side-Delt Flyes, Tricep Ext, Bicep Curls |
+
+Circuit rep ranges are 20–32 / 10–16 / 5–8 by position, spanning what used to be
+a four-stage rep ramp; main lifts are 3 × 8–12 with two lead-in sets;
+accessories are 3 × 8–12 with none.
+
+### 2.6 Cadence
+
+The app makes no calendar assumptions. The program advances one day per
+completed session — whenever that is.
 
 ## 3. App Surface
 
@@ -84,9 +98,13 @@ Three bottom-nav tabs:
 
 1. **Tracker** — today's workout
 2. **Log** — calendar grid of past sessions, colored by feedback
-3. **Progression** — weight-over-time charts per movement
+3. **Program** — the whole split, editable in place
 
-Additionally, a **Help/Info** overlay is accessible via the top app bar icon, explaining the app philosophy and programming.
+A **Help/Info** overlay is accessible via the top app bar icon.
+
+There is no onboarding wizard. A fresh install seeds the default program and
+opens on the Program tab, so the first thing you see is the thing you can
+change; every later launch opens on the Tracker.
 
 ## 4. Tracker
 
@@ -96,26 +114,29 @@ Single scrollable screen, top to bottom:
 
 ```
 ┌────────────────────────────────────────┐
-│  A — Pull           Wed 13 May         │  ← header: split letter + name + date
+│  Pull                   Wed 13 May     │  ← header: day name + date
 ├────────────────────────────────────────┤
-│  KB Flow · 16 kg                       │
+│  Kettlebell flow · 16 kg               │
 │                                        │
-│  Swings           ·32                  │  ← movement labels, no per-row button
-│  High Pulls       ·16/side             │     (themed to the split, §2.2)
-│  Goblet Squats    ·8                   │
+│  Swings           20–32                │  ← movement labels, no per-row button
+│  High Pulls       10–16/side           │
+│  Goblet Squats    5–8                  │
 │                                        │
-│   Circuit 1   Circuit 2   Circuit 3    │  ← three buttons total, one per lap
+│    Round 1     Round 2     Round 3     │  ← one button per lap
 │       ●           ●           ●        │
 ├────────────────────────────────────────┤
-│  Lat Pulldown · 70 kg · target 10 reps │
+│  Lat Pulldown       70 kg        8–12  │
 │                                        │
 │  Prime · Warm-up · Work · Work · Work  │
-│  (35)    (52.5)    ●      ●      ●      │  ← prime/warm-up show their load
+│  (35)    (52.5)    ●      ●      ●     │  ← lead-ins show their load
+│  ┌──────────────────────────────────┐  │
+│  │ All sets done · go to 72.5 kg?   │  │  ← appears once every set is ✓
+│  └──────────────────────────────────┘  │
 ├────────────────────────────────────────┤
-│  Barbell Row · 60 kg · target 12 reps  │
+│  Barbell Row        60 kg        8–12  │
 │                                        │
 │  Prime · Warm-up · Work · Work · Work  │
-│  (30)    (45)      ●      ●      ●      │
+│  (30)    (45)      ●      ●      ●     │
 └────────────────────────────────────────┘
 ```
 
@@ -125,9 +146,10 @@ Each set is a single circular button. Three states:
 
 - **Pending** — outlined, empty
 - **Completed** — filled, checkmark glyph (single tap)
-- **Failed** — filled with a em-dash glyph (double tap)
+- **Failed** — filled with an em-dash glyph (double tap)
 
-A long-press on a completed/failed button reverts it to pending (in-session correction only). Once the session is saved, sets are immutable.
+A long-press on a completed/failed button reverts it to pending (in-session
+correction only). Once the session is saved, sets are immutable.
 
 **Feedback on tap:**
 
@@ -135,53 +157,62 @@ A long-press on a completed/failed button reverts it to pending (in-session corr
 - Double tap → long haptic + alternate glyph
 - Long press → light haptic + revert animation
 
-### 4.3 Priming & warm-up sets
+A **triple-tap** on a weight opens the editor for it. Editing mid-session changes
+both the set in front of you and the program, so it applies next time too.
 
-The Prime and Warm-up buttons are "done" taps — no rep tracking — but each shows the
-weight to plate up *inside* its circle (replaced by the status glyph once tapped). The
-number is the equipment setting: load for a traditional lift, assistance pin for an
-assisted one.
+### 4.3 Lead-in sets
+
+Prime and Warm-up are "done" taps — no rep tracking — but each shows the weight
+to plate up *inside* its circle (replaced by the status glyph once tapped). The
+number is the equipment setting: load for a traditional lift, assistance pin for
+an assisted one. How many a movement gets is programmed per movement (§2.4).
 
 The loads are derived from the working weight, never stored:
 
-- **Prime** targets 50% of the working load; **Warm-up** targets 75%.
+- **Prime** targets 50% of the working load; **Warm-up** targets 75%. With a
+  single lead-in it is the warm-up.
 - Rounded to the nearest **2.5 kg** so it is realistic to plate up.
-- Floored at **20 kg** for main lifts (A/B/C) and **5 kg** for auxiliaries, and never
-  heavier than the working set (so very light or bodyweight movements don't ramp up).
-- **Assisted movements** (e.g. Assisted Dips) invert: the number is machine assistance,
-  so the same 50%/75% reduction is applied to the *effective* load (bodyweight − pin)
-  and the pin is raised to match. This needs a current bodyweight, so the weekly
-  check-in (§ bodyweight) is asked up front on any day that programs an assisted lift;
-  until one is entered the lead-in sets mirror the working pin.
+- Floored at **20 kg**, or at the working weight when that is lighter, so a
+  lead-in is never heavier than the set it leads into. A movement light enough
+  to make a ramp pointless is simply programmed with no lead-in sets.
+- **Assisted movements** invert: the number is machine assistance, so the same
+  50%/75% reduction is applied to the *effective* load (bodyweight − pin) and
+  the pin is raised to match. This needs a current bodyweight, so the weekly
+  check-in (§9.5) is asked up front on any day that programs an assisted
+  movement; until one is entered the lead-in sets mirror the working pin.
 
 ### 4.4 Completion flow
 
-When every **main-block** button (KB circuits + both strength movements) is in a
-non-pending state, the split's three auxiliary movements are appended
-automatically — same Prime / Warm-up / 3×Work shape — and the Tracker switches
-to the Auxiliary block. No prompt: auxiliary work is part of every session.
-
-When the auxiliary buttons are also all non-pending:
+Blocks marked "reveals later" appear once every earlier block is resolved. When
+every button in every block is in a non-pending state:
 
 1. A modal slides up: "How did that feel?"
 2. Three large color dots: 🔴 🟡 🟢 (the only color in the app)
-3. User taps one → session (main + aux) is committed → split pointer advances → Tracker re-renders showing the next day's split.
+3. User taps one → the session is committed → the day pointer advances → the
+   Tracker re-renders showing the next day.
 
-There is **no skip, no save-as-draft, no edit.** The session lives in the log the moment feedback is given.
+There is **no skip, no save-as-draft, no edit.** The session lives in the log the
+moment feedback is given.
 
 ### 4.5 Mid-session persistence
 
-If the app is killed mid-workout, the in-progress state of every button is restored on next launch. Sessions only commit on feedback.
+If the app is killed mid-workout, the in-progress state of every button is
+restored on next launch. Sessions only commit on feedback.
 
-### 4.6 Empty-tab state for a fresh user
+A stored session is discarded and rebuilt when it no longer describes today's
+workout: a new date, a different day, or a program edit that changed which
+movements today needs.
 
-After onboarding completes, the first Tracker render shows **Session A** with all buttons pending, KB weight and strength weights pulled from onboarding entries.
+### 4.6 Empty program
+
+A program with no days can prescribe nothing. The Tracker says so and points at
+the Program tab.
 
 ### 4.7 Rest guide
 
-Marking any set completed or failed (re)starts a rest guide pinned to the
-bottom edge of the Tracker: a count-up `m:ss` over a hairline track that fills
-toward **3:00**, with a notch at **1:30**.
+Marking any set completed or failed (re)starts a rest guide pinned to the bottom
+edge of the Tracker: a count-up `m:ss` over a hairline track that fills toward
+**3:00**, with a notch at **1:30**.
 
 - **1:30** — enough after priming, warm-up, or sets that felt easy.
 - **3:00** — full rest before the next heavy working set.
@@ -211,232 +242,256 @@ A calendar grid of past sessions.
 | Empty outlined square    | A future day                                        |
 | Today                    | Slightly thicker border, regardless of state        |
 
-Tapping a colored cell reveals a small read-only card: split letter, movements, weights, set outcomes, feedback color. No edit affordance.
+Tapping a colored cell reveals a small read-only card. It replays the session
+**as it was performed** — its own order, weights and rep ranges — rather than
+describing it in terms of today's program, which may since have changed. A
+session logged against a day that no longer exists shows its raw day key. No
+edit affordance.
 
 ### 5.3 Scope
 
 Show from the first logged session (or app install) onward — no infinite past.
 
-## 6. Progression
+## 6. Program
 
-A vertically scrolling list of charts, one per tracked movement.
+The whole split, editable in place. Days collapse to a one-line summary and
+expand to their blocks and movements.
 
-### 6.1 Charts
+- **Reordering** uses up/down arrows, not drag. The app has no drag-and-drop
+  anywhere else and a list this short does not justify the dependency.
+- Tapping a movement opens a sheet with every field from §2.4, plus delete.
+- Tapping a block header opens its name and switches (rotates, reveals later,
+  and for circuits: rounds and the kettlebell ladder).
+- Deleting a day takes its blocks and movements with it. Sessions logged against
+  it are kept — history is never touched by a program edit.
 
-- **X axis:** time — a sliding window over the most recent **8 weeks**, the same fixed scale on every chart.
-- **Y axis (left):** working weight (kg), padded outward to clean 2.5 kg multiples, with three faint gridlines (bottom/middle/top).
-- A single **solid monochrome line** with a small dot per session; the latest session gets an emphasized dot, and its weight is echoed next to the movement title.
-- Drawn with a plain Compose `Canvas` — no chart library.
+The movement registry is never pruned, so a movement dropped from the program
+still renders a name in the Log.
 
-One chart per:
+## 7. First launch
 
-- Kettlebell (single chart for the KB flow weight)
-- Each strength movement on the canonical list (Pulldown, Row, Bench, OHP, Squat, Romanian Deadlift (RDL))
-
-### 6.2 No interactivity beyond scrolling
-
-## 7. Onboarding (first launch)
-
-A short flow, one screen per question, swipe-forward style:
-
-1. "Your kettlebell weight (kg)?" — single numeric entry.
-2. "Starting working weights" — six numeric entries (one per strength movement), with sensible placeholder defaults.
-3. "Progression and reps" — two values: starting target reps (default **8**) and preferred max reps (default **12**).
-
-On completion the persisted "initial state" is the row in `user_settings`
-plus the six `starting_weight` rows; together they form the
-`OnboardingDefaults` sentinel that the progression engine reads when a
-movement has no session history (§9.2). No synthetic "session 0" row is
-written. The app then opens to the Tracker on **Session A**.
+The default program (§2.5) is seeded and the app opens on the Program tab.
+Weights can be corrected there, or in-session by triple-tapping any weight.
 
 ## 8. Data Model
 
-Using Room (SQLite). Tables:
+Using Room (SQLite). Column names in the tables below are the actual camelCase
+Kotlin property names.
 
-### 8.1 `exercise` (static / seeded)
+### 8.1 `exercise` (the movement registry)
 
-| Column            | Type    | Notes                                              |
-| ----------------- | ------- | -------------------------------------------------- |
-| `slug`            | TEXT    | PK — `swings`, `lat_pulldown`, `bench`, etc.       |
-| `display_name`    | TEXT    |                                                    |
-| `category`        | TEXT    | `KB` / `A` / `B` / `C`                             |
-| `is_per_side`     | BOOL    | for KB display formatting                          |
-| `weight_step_kg`  | REAL    | default 2.5; KB is 2.0                             |
-| `min_reps`        | INTEGER | default 8                                          |
-| `max_reps`        | INTEGER | default 16                                         |
+| Column        | Type | Notes                                          |
+| ------------- | ---- | ---------------------------------------------- |
+| `slug`        | TEXT | PK — stable identity written to `set_entry`    |
+| `displayName` | TEXT | The name shown; renaming updates it in place   |
 
-Seeded at install time and re-checked on every DB open (`INSERT OR IGNORE`)
-so catalog rows added in later releases backfill into existing installs.
+Every programming parameter lives on `program_item`. The registry stays as the
+foreign-key target for `set_entry`, so a movement dropped from the program still
+resolves to a name. Rows are never deleted, and the seed only ever *inserts* —
+it never overwrites a rename.
 
-> Slug is the natural key — stable across releases and human-readable in
-> queries. We dropped the synthetic integer `id` since it had no callers.
+The table retains `category`, `isPerSide`, `weightStepKg`, `minReps` and
+`maxReps` columns from earlier versions. They are vestigial: rebuilding a table
+three foreign keys point into buys nothing.
 
-The catalog carries one extra row, `kb_flow`, used as the sentinel
-`exercise_slug` for the three per-session KB-circuit rows in `set_entry`
-(§2.2). The named KB movements (swings, clean & press, goblet squat, high
-pull, snatch) remain in the catalog as per-split display references but never
-appear in `set_entry`.
+### 8.2 `program_day` / `program_group` / `program_item`
 
-### 8.2 `user_settings` (singleton row, `id = 0`)
+```
+program_day     id · dayKey (unique) · name · position
+program_group   id · dayId → program_day (cascade) · name · kind · position
+                rotates · isDeferred
+                rounds · circuitSlug · weightKg · usesLadder
+                weightChangedAt · bumpSnoozedAt
+program_item    id · groupId → program_group (cascade)
+                exerciseSlug → exercise.slug · position
+                sets · minReps · maxReps · leadInSets
+                weightStepKg · isAssisted · isPerSide · currentWeightKg
+```
 
-| Column                          | Type    | Notes                                            |
-| ------------------------------- | ------- | ------------------------------------------------ |
-| `id`                            | INTEGER | PK, always `0`                                   |
-| `onboarded_at`                  | INTEGER | epoch millis; null until onboarding completes    |
-| `kb_weight_kg`                  | REAL    | current KB weight — initial value captured at onboarding, mutated by the KB-bump prompt (§9.3); each session snapshots this at commit time |
-| `starting_target_reps`          | INTEGER | starting target reps (default 8) at onboarding   |
-| `standard_max_reps`            | INTEGER | preferred max reps for standard lifts (default 12)|
-| `kb_bump_snoozed_at_month`      | TEXT    | ISO `YYYY-MM`; set when user taps "Not yet". Retained for storage compatibility — suppression is purely session-count based (§9.3) |
-| `kb_bump_snooze_session_count`  | INTEGER | session count at snooze; suppresses the prompt for 2 sessions |
+- `dayKey` is the value written to `session.split`. The seeded program uses
+  `"A"`, `"B"`, `"C"` so sessions logged before programs were editable still
+  resolve.
+- The circuit columns only carry meaning when `kind = CIRCUIT`. `circuitSlug` is
+  the sentinel exercise the round rows are stored under; the seeded kettlebell
+  groups reuse `kb_flow`.
+- **`currentWeightKg` is the only place a working weight is stored.** It is
+  written by the bump chip, the Tracker's weight editor, the Program editor and
+  the rest-week deload. Rows are updated in place, never deleted and
+  reinserted, or the user's accumulated weight is lost.
+- Positions are always rewritten to a dense `0..n-1` after any mutation that can
+  disturb ordering.
 
-### 8.2.1 `starting_weight` (one row per strength movement)
+### 8.3 `user_settings` (singleton row, `id = 0`)
 
-| Column         | Type | Notes                                |
-| -------------- | ---- | ------------------------------------ |
-| `exercise_slug`| TEXT | PK, FK → `exercise.slug`             |
-| `weight_kg`    | REAL | onboarding starting working weight   |
+| Column                      | Type    | Notes                                              |
+| --------------------------- | ------- | -------------------------------------------------- |
+| `id`                        | INTEGER | PK, always `0`                                      |
+| `onboardedAt`               | INTEGER | Stamped on first visit to the Program tab; only decides which tab opens first |
+| `isDarkMode`                | INTEGER | Nullable override                                   |
+| `hapticLevel`               | INTEGER | 0 Low / 1 Medium / 2 High                           |
+| `bodyweightKg`              | REAL    | Latest weekly check-in                              |
+| `bodyweightLoggedAt`        | INTEGER | Drives the staleness prompt                         |
+| `restWeekAnchorSessions`    | INTEGER | Session count at the last rest week                 |
+| `restWeekSnoozedAtSessions` | INTEGER | Session count at the last snooze, or null           |
 
-Together with `user_settings.kb_weight_kg` and `starting_target_reps`, this is
-what the progression engine reads as `OnboardingDefaults` when a movement has
-no history.
+`kbWeightKg`, `startingTargetReps`, `standardMaxReps`, `kbBumpSnoozedAtMonth`
+and `kbBumpSnoozeSessionCount` are vestigial. The seed reads the first three once
+to build the default program, after which the program owns them.
 
-`saveOnboarding` writes `user_settings` and the six `starting_weight` rows in
-two sequential DAO calls; each table's reactive `Flow` invalidates separately,
-so for one tick a consumer can see settings present and weights still empty.
-The `buildOnboardingDefaults` mapper guards against this by returning `null`
-until every strength slug has a `starting_weight` row, so observers (e.g. the
-post-onboarding Tracker bootstrap) only ever see a fully-formed
-`OnboardingDefaults`.
+`starting_weight` is likewise vestigial — the seed copies it onto program items
+and nothing reads it afterwards.
 
-### 8.3 `session`
+### 8.4 `session`
 
-| Column         | Type    | Notes                                  |
-| -------------- | ------- | -------------------------------------- |
-| `id`           | INTEGER | PK, autogenerated                      |
-| `date`         | TEXT    | ISO date (local), unique index         |
-| `split`        | TEXT    | `A` / `B` / `C`                        |
-| `feedback`     | TEXT    | `Red` / `Yellow` / `Green`             |
-| `kb_weight_kg` | REAL    | snapshot of KB weight that day         |
-| `completed_at` | INTEGER | epoch millis                           |
+| Column         | Type    | Notes                                                     |
+| -------------- | ------- | --------------------------------------------------------- |
+| `id`           | INTEGER | PK, autogenerated                                          |
+| `date`         | TEXT    | ISO date (local), indexed                                  |
+| `split`        | TEXT    | The `ProgramDay.key` — column name kept from earlier versions |
+| `feedback`     | TEXT    | `Red` / `Yellow` / `Green`                                 |
+| `kbWeightKg`   | REAL    | Snapshot of the day's first ladder circuit; 0 when none    |
+| `bodyweightKg` | REAL    | Snapshot at commit, for assisted effective load            |
+| `completedAt`  | INTEGER | epoch millis                                               |
 
-### 8.4 `set_entry`
+### 8.5 `set_entry`
 
-One row per set, including KB rounds. The priming and warm-up sets are both stored with
-`is_priming = true`, told apart by `set_index` (0 = prime, 1 = warm-up); the three
-working sets are `is_priming = false` with `set_index` 1–3. Treating warm-up as a
-priming row keeps it out of every progression/deload calculation (which key on
-`is_priming = false`) and needs no schema change.
+One row per set, including circuit rounds. Prime and warm-up are both stored with
+`isPriming = true`, told apart by `setIndex` (0 = prime, 1 = warm-up); working
+sets are `isPriming = false` with `setIndex` 1–N.
 
-| Column          | Type    | Notes                                                        |
-| --------------- | ------- | ------------------------------------------------------------ |
+| Column          | Type    | Notes                                                       |
+| --------------- | ------- | ----------------------------------------------------------- |
 | `id`            | INTEGER | PK, autogenerated                                            |
-| `session_id`    | INTEGER | FK → `session.id` (cascade delete)                           |
-| `exercise_slug` | TEXT    | FK → `exercise.slug`                                         |
-| `set_index`     | INTEGER | 0-based ordinal within (session, exercise)                   |
-| `is_priming`    | BOOL    | true for the prime (`set_index` 0) and warm-up (`set_index` 1) sets |
-| `target_reps`   | INTEGER | nullable for KB (KB reps are fixed) and priming/warm-up sets |
-| `weight_kg`     | REAL    | working weight or KB weight                                  |
+| `sessionId`     | INTEGER | FK → `session.id` (cascade delete)                           |
+| `exerciseSlug`  | TEXT    | FK → `exercise.slug`                                         |
+| `setIndex`      | INTEGER | Ordinal within (session, movement)                           |
+| `isPriming`     | BOOL    | True for prime and warm-up                                   |
+| `targetReps`    | INTEGER | Low end of the rep range; null for circuit rounds            |
+| `targetRepsMax` | INTEGER | High end; null on sessions logged before rep ranges existed  |
+| `weightKg`      | REAL    |                                                              |
 | `status`        | TEXT    | `Completed` / `Failed`                                       |
+| `position`      | INTEGER | The movement's ordinal in the session **as performed**, i.e. after rotation. The Log orders by this |
 
-### 8.5 In-progress session (two tables)
+### 8.6 In-progress session (two tables)
 
 Holds the unfinalized button state if the user is mid-workout. Cleared on commit.
 
-`in_progress_session` (singleton, `id = 0`) carries the session header:
+`in_progress_session` (singleton, `id = 0`) carries `date` and `dayKey`.
 
-| Column         | Type    | Notes                                  |
-| -------------- | ------- | -------------------------------------- |
-| `id`           | INTEGER | PK, always `0`                         |
-| `date`         | TEXT    | ISO date                               |
-| `split`        | TEXT    | `A` / `B` / `C`                        |
-| `kb_weight_kg` | REAL    | snapshot for this session              |
+`in_progress_set` carries one row per button:
 
-`in_progress_set` carries one row per button, mirroring `set_entry`:
+| Column           | Type    | Notes                                                  |
+| ---------------- | ------- | ------------------------------------------------------ |
+| `id`             | INTEGER | PK. **Buttons are addressed by this**                  |
+| `programGroupId` | INTEGER | The owning block                                       |
+| `programItemId`  | INTEGER | The owning movement; `0` for a circuit's round rows     |
+| `exerciseSlug`   | TEXT    | FK → `exercise.slug`                                   |
+| `setIndex`       | INTEGER |                                                        |
+| `isPriming`      | BOOL    |                                                        |
+| `targetReps`     | INTEGER | nullable                                               |
+| `targetRepsMax`  | INTEGER | nullable                                               |
+| `weightKg`       | REAL    |                                                        |
+| `state`          | TEXT    | `Pending` / `Completed` / `Failed`                     |
+| `position`       | INTEGER |                                                        |
 
-| Column          | Type    | Notes                                                  |
-| --------------- | ------- | ------------------------------------------------------ |
-| `id`            | INTEGER | PK, autogenerated                                      |
-| `exercise_slug` | TEXT    | FK → `exercise.slug`                                   |
-| `set_index`     | INTEGER | 0-based ordinal                                        |
-| `is_priming`    | BOOL    |                                                        |
-| `target_reps`   | INTEGER | nullable                                               |
-| `weight_kg`     | REAL    |                                                        |
-| `state`         | TEXT    | `Pending` / `Completed` / `Failed`                     |
+Unique index on `(programGroupId, programItemId, setIndex, isPriming)`. Rows are
+addressed by `id` rather than by exercise, because a user-defined day may
+legitimately program the same movement twice. On commit, the UI guarantees no row
+is in the `Pending` state.
 
-Unique index on `(exercise_slug, set_index, is_priming)`. On commit, the UI guarantees no row is in the `Pending` state.
+### 8.7 Migrations
+
+Every schema change bumps `DB_VERSION` and adds an explicit `Migration`. No
+destructive migrations in release builds — losing a user's training history is
+worse than crashing on first launch of a buggy build. Current version: **7**.
+
+The 6 → 7 migration creates structure only; the default program is seeded in
+Kotlin on the same open, where it can carry the user's starting weights across
+readably. The two in-progress tables are dropped and rebuilt rather than
+migrated: a half-finished session is ephemeral, and the new rows are addressed
+differently. `MigrationTest` covers the upgrade.
 
 ## 9. Progression Rules
 
-All progression is **derived from history** at the moment the Tracker renders. No "current state" table is kept for weights or rep targets.
+**Nothing moves a weight except the user.** There is no progression engine and
+nothing is derived from history: a movement's weight is what the program says it
+is.
 
-Progression does not happen if user has failed sets. If feedback from previous weeks is mostly red/yellow ask user for confirmation on progression.
-
-### 9.1 Next split
+### 9.1 Next day
 
 ```
-split_for_today = next_after(last_completed_session.split)
-where next_after(A)=B, next_after(B)=C, next_after(C)=A
-if no sessions: A
+day_for_today = the day after last_completed_session's day, in program order
+wrapping at the end; the first day if there is no history
+or if that day has since been deleted
 ```
 
-### 9.2 Strength weight & target reps for a movement
+Session-count driven, never calendar driven — skipping a week doesn't skip a day.
 
-Look at the most recent session in which this movement appeared.
+### 9.2 Weight
 
-Let `W` = weight used, `R` = target reps used.
+Reps are a **range**, shown as a range. Anywhere inside it counts, so there is no
+per-session rep target to chase.
 
-Let `max_reps` = user-configured preferred max for the lift.
+Complete every working set of a movement and a chip appears offering the next
+weight up (one increment; for an assisted movement, one increment *less*
+assistance). Taking it writes the new weight to the program — this session keeps
+the weight actually lifted. Tapping again gives it back, and reverting a set
+retracts the offer.
 
-Let `all_working_completed` = every working set (3 of them) for this movement in that session has `status = completed` (none failed).
+Fail a set and nothing happens. That is the point: train to failure, then milk
+the weight until you clear it again.
 
-Then for today:
+"Armed" is not stored anywhere. It is simply the program weight differing from
+the session weight, which makes the chip its own undo.
 
-- If `all_working_completed` is **false** → repeat: same `W`, same `R`.
-- Else if `R < max_reps` → same `W`, target `R + 1`.
-- Else (`R == max_reps` and all completed) → `W + weight_step_kg`, target `min_reps`.
+### 9.3 Kettlebell ladder
 
-If this movement has never been logged → use the onboarding starting values (weight + starting reps), coerced to the movement's `[min_reps, max_reps]` range.
+Bells come in big discrete jumps, so a circuit block can opt into a ladder:
+**8, 10, 12, 16, 20, 24, 28, 32 kg**. Unlike a barbell movement this is paced by
+time, not performance — three months on one bell, then an offer:
 
-### 9.3 KB weight progression
+> "It's been 3 months — move up to {next rung} kg?"
 
-Time-based, not performance-based. Weight moves along the owned-bell ladder
-**8, 10, 12, 16, 20, 24, 28, 32 kg**; after each move the rep scheme ramps
-back up over nine workouts (§2.2).
+The clock is the group's own `weightChangedAt` stamp, so accepting silences the
+prompt for another three months and "Not yet" holds it off for two weeks. The
+offer only appears before the first round is touched — swapping bells mid-circuit
+would invalidate the rounds already logged. Never fires at the top of the ladder.
 
-Once the current KB weight has been in use for **3 months** — measured from
-the first session of the trailing run of history at that weight — the app
-prompts:
+### 9.4 Rest week
 
-> "It's been 3 months — bump KB to {next ladder weight} kg?"
+After **24 logged sessions** since the last rest week (≈ 2 months at three a
+week) the Tracker offers one. Counting sessions rather than calendar time means
+"consistent logging" falls out for free: training less often pushes the prompt
+further out instead of nagging someone who hasn't accumulated the fatigue.
 
-User taps yes / not yet. Once due, the prompt persists every session until
-accepted or snoozed; "Not yet" snoozes it for two more sessions, then it asks
-again. The prompt never fires at the top of the ladder (32 kg), with an empty
-history, or before the current weight has a completed session — which is also
-why accepting needs no snooze stamp: the fresh weight's run is empty until
-3 months pass again. The KB weight stored on each session is whatever was
-active that day.
+Accepting drops **every** movement in the program by its own increment — assisted
+movements gain a step of assistance, nothing goes below zero — and resets the
+counter. Circuit weights are left alone; the ladder is already the conservative
+clock. "Not yet" holds the prompt off for two more sessions.
 
-Off-ladder weights (e.g. 18 kg from the pre-ladder +2 kg rule, or a free-text
-edit) simply target the next rung up.
+### 9.5 Bodyweight check-in
 
-No automatic bumps without confirmation.
+Effective load for an assisted movement is bodyweight − pin, so a current
+bodyweight is needed to derive it. The Tracker asks when one is missing or older
+than **7 days**, and only on a day that actually programs an assisted movement.
+The value in force is snapshotted onto each session at commit, so historical
+effective load stays fixed even if bodyweight is later corrected.
 
-### 9.4 Display
+## 10. Administrative Features
 
-The Tracker header shows the **target** weight and reps that the rules above produced. The user just executes.
+"Secret" administrative menus are accessible via a **5-tap gesture** on the
+center title text ("KB MiniSplit") in the top app bar. The available options
+depend on the active tab:
 
-## 11. Administrative Features
+- **Tracker Tab**: jump to a specific day of the program.
+- **Log Tab**: factory reset (wipe all data).
+- **Program Tab**: haptic intensity (Low/Medium/High), and JSON export/import.
 
-"Secret" administrative menus are accessible via a **5-tap gesture** on the center title text ("KB MiniSplit") in the top app bar. The available options depend on the active tab:
+Backups are version 2, carrying the program tables and the movement registry
+alongside history and settings. A version 1 backup still restores; the seed then
+rebuilds the default program from the settings it carried.
 
-- **Tracker Tab**: Manual split override (Force A/B/C).
-- **Log Tab**: Factory reset (Wipe all data).
-- **Progression Tab**: 
-    - Haptic intensity adjustment (Low/Medium/High).
-    - Data Backup/Restore (JSON Export and Import).
-
-## 12. Tech Stack & Architecture
+## 11. Tech Stack & Architecture
 
 - **Language:** Kotlin
 - **UI:** Jetpack Compose, Material 3 (mostly the typography & shapes; the color scheme is overridden with a monochrome palette)
@@ -444,30 +499,30 @@ The Tracker header shows the **target** weight and reps that the rules above pro
 - **Target SDK:** latest stable at build time
 - **Persistence:** Room
 - **Reactive state:** Kotlin Flow / StateFlow
-- **DI:** Hilt (convention; manual DI also fine for an app this small — flag at first PR)
-- **Charts:** hand-drawn with Compose `Canvas` (no chart dependency)
+- **DI:** Hilt
 - **Build:** Gradle Kotlin DSL, version catalogs (`libs.versions.toml`)
 - **Tests:**
-  - Unit: JUnit + Turbine for Flows. Progression-rules engine gets exhaustive coverage.
-  - Instrumented: Compose UI tests on a couple of critical flows (set tap → state, completion → feedback dialog).
+  - Unit: JUnit + Truth + Turbine for Flows. The progression rules get exhaustive coverage.
+  - Instrumented: Room round-trips, the 6 → 7 migration, and Compose UI tests on the critical flows.
 
-### 12.1 Architecture
+`java.time.Clock` and the IO `CoroutineDispatcher` are injected everywhere they
+are needed, so tests stay deterministic.
+
+### 11.1 Architecture
 
 MVVM with a clean separation:
 
 ```
 ui/         Composables + ViewModels (one per screen)
-domain/     Pure-Kotlin progression engine, no Android deps
+domain/     Pure-Kotlin model + rules, no Android deps
 data/       Room DAOs, repositories, mappers
 ```
 
-The progression engine is a **pure function** of `(history, today's date, settings) → today's prescription`. Everything else flows from there.
-
-## 13. Project Structure
+## 12. Project Structure
 
 ```
 KBminisplit/
-├── spec.md
+├── docs/spec.md
 ├── README.md
 ├── settings.gradle.kts
 ├── build.gradle.kts
@@ -475,6 +530,7 @@ KBminisplit/
 │   └── libs.versions.toml
 └── app/
     ├── build.gradle.kts
+    ├── schemas/                            (exported Room schemas, 1..7)
     └── src/
         ├── main/
         │   ├── AndroidManifest.xml
@@ -483,45 +539,52 @@ KBminisplit/
         │   │   ├── MainActivity.kt
         │   │   ├── ui/
         │   │   │   ├── theme/               (monochrome Material theme)
-        │   │   │   ├── components/          (shared: SetButton, FeedbackDot)
+        │   │   │   ├── components/          (SetButton, FeedbackDot, RestTimerBar, NumberField)
         │   │   │   ├── tracker/
         │   │   │   ├── log/
-        │   │   │   ├── progression/
-        │   │   │   ├── onboarding/
+        │   │   │   ├── program/
+        │   │   │   ├── info/
+        │   │   │   ├── main/                (MainShell)
+        │   │   │   ├── root/
+        │   │   │   ├── mapper/              (in-progress rows → Tracker blocks)
         │   │   │   └── nav/
         │   │   ├── domain/
-        │   │   │   ├── model/               (Session, SetEntry, Prescription)
-        │   │   │   └── progression/         (the rules engine)
+        │   │   │   ├── model/               (Program, Session, SetEntry, InProgressSet)
+        │   │   │   └── progression/         (NextDay, GroupRotation, WeightBump, RestWeek,
+        │   │   │                             CircuitBumpPrompt, AcclimatizationLoad,
+        │   │   │                             EffectiveLoad, BodyweightPrompt, KbRamp)
         │   │   └── data/
-        │   │       ├── db/                  (AppDatabase, DAOs)
+        │   │       ├── db/                  (AppDatabase, DAOs, DefaultProgram, seed)
         │   │       ├── entity/              (Room entities)
         │   │       ├── mapper/
+        │   │       ├── di/
         │   │       └── repository/
         │   └── res/
-        ├── test/                            (JVM unit tests; progression engine lives here)
-        └── androidTest/                     (Compose UI tests)
+        ├── test/                            (JVM unit tests; the rules live here)
+        └── androidTest/                     (Room + migration + Compose UI tests)
 ```
 
-## 14. Out of Scope (v1)
+## 13. Out of Scope
 
 - Cloud sync, account, multi-device
 - Plate calculator
-- Light/dark theme switching beyond following the system
 - Localization (English-only, kg-only)
 - Unit conversion to lb
 - Workout reminders / notifications
 - Analytics or telemetry
 - Watch app, widget, complications
-- Sharing sessions
+- Sharing sessions or programs
 
-## 15. Open Questions
+## 14. Open Questions
 
-These are decisions to revisit before locking, or after a first build is in hand:
-
-1. **KB bump cadence.** ~~Calendar month is one rule; "every N sessions" might be more honest if usage is sporadic.~~ Resolved: 3 months at the current weight (measured from the trailing run of sessions at that weight, so sporadic use still counts real exposure), stepping along the owned-bell ladder with a rep ramp (§2.2, §9.3).
-2. **Deload / regression.** What if a movement fails repeatedly? Today: it just stalls. Should we surface a "consider deloading 10%" hint after, say, 3 consecutive failed sessions?
-3. **Time-of-day in the log.** Session is keyed by local date. Two sessions in one day are not supported (and arguably shouldn't be for this program).
+1. **Two sessions in one day.** Sessions are keyed by local date, so a second
+   session on the same day is not supported (and arguably shouldn't be).
+2. **Per-day rotation of blocks.** Movements rotate within a block; the blocks
+   themselves keep their position. Whether whole blocks should be able to swap
+   order is unresolved.
+3. **Ladder editability.** The bell ladder is a constant. If someone owns a
+   different set of bells, they would need it to be editable.
 
 ---
 
-*This spec is the source of truth for v1 scope. Implementation deviations require updating this file in the same PR.*
+*This spec is the source of truth for scope. Implementation deviations require updating this file in the same PR.*

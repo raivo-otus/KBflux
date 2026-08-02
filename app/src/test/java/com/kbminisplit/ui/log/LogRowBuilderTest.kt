@@ -3,7 +3,6 @@ package com.kbminisplit.ui.log
 import com.google.common.truth.Truth.assertThat
 import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.Session
-import com.kbminisplit.domain.model.Split
 import org.junit.Test
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -179,9 +178,9 @@ class LogRowBuilderTest {
 
     private fun sessionAt(date: LocalDate, feedback: Feedback): Session = Session(
         date = date,
-        split = Split.A,
+        dayKey = "A",
         feedback = feedback,
-        kbWeightKg = 16.0,
+        circuitWeightKg = 16.0,
         sets = emptyList(),
     )
 }
