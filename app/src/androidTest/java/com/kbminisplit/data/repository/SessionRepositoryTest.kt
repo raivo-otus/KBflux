@@ -6,13 +6,11 @@ import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import com.kbminisplit.data.db.AppDatabase
 import com.kbminisplit.data.db.buildInMemoryDatabase
-import com.kbminisplit.data.db.seedExerciseCatalog
-import com.kbminisplit.domain.model.ExerciseCatalog
+import com.kbminisplit.data.db.seedExerciseRegistry
 import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.Session
 import com.kbminisplit.domain.model.SetEntry
 import com.kbminisplit.domain.model.SetStatus
-import com.kbminisplit.domain.model.Split
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -29,12 +27,13 @@ class SessionRepositoryTest {
     private lateinit var db: AppDatabase
     private lateinit var repo: SessionRepository
 
-    private val fixedClock: Clock = Clock.fixed(Instant.parse("2026-05-15T10:00:00Z"), ZoneOffset.UTC)
+    private val fixedClock: Clock =
+        Clock.fixed(Instant.parse("2026-05-15T10:00:00Z"), ZoneOffset.UTC)
 
     @Before
     fun setUp() = runBlocking {
         db = buildInMemoryDatabase(InstrumentationRegistry.getInstrumentation().context)
-        seedExerciseCatalog(db)
+        seedExerciseRegistry(db)
         repo = SessionRepository(db.sessionDao(), fixedClock)
     }
 
@@ -43,21 +42,26 @@ class SessionRepositoryTest {
         db.close()
     }
 
+    private fun movement(
+        slug: String,
+        weightKg: Double,
+        position: Int,
+        lastStatus: SetStatus = SetStatus.Completed,
+    ): List<SetEntry> = listOf(
+        SetEntry(slug, 0, isPriming = true, targetReps = null, weightKg = weightKg, status = SetStatus.Completed, position = position),
+        SetEntry(slug, 1, isPriming = false, targetReps = 8, targetRepsMax = 12, weightKg = weightKg, status = SetStatus.Completed, position = position),
+        SetEntry(slug, 2, isPriming = false, targetReps = 8, targetRepsMax = 12, weightKg = weightKg, status = SetStatus.Completed, position = position),
+        SetEntry(slug, 3, isPriming = false, targetReps = 8, targetRepsMax = 12, weightKg = weightKg, status = lastStatus, position = position),
+    )
+
     private fun sampleSession(date: LocalDate = LocalDate.of(2026, 5, 14)) = Session(
         date = date,
-        split = Split.A,
+        dayKey = "A",
         feedback = Feedback.Green,
-        kbWeightKg = 16.0,
-        sets = listOf(
-            SetEntry(ExerciseCatalog.LatPulldown.slug, 0, isPriming = true, targetReps = null, weightKg = 40.0, status = SetStatus.Completed),
-            SetEntry(ExerciseCatalog.LatPulldown.slug, 1, isPriming = false, targetReps = 8, weightKg = 50.0, status = SetStatus.Completed),
-            SetEntry(ExerciseCatalog.LatPulldown.slug, 2, isPriming = false, targetReps = 8, weightKg = 50.0, status = SetStatus.Completed),
-            SetEntry(ExerciseCatalog.LatPulldown.slug, 3, isPriming = false, targetReps = 8, weightKg = 50.0, status = SetStatus.Failed),
-            SetEntry(ExerciseCatalog.BarbellRow.slug, 0, isPriming = true, targetReps = null, weightKg = 30.0, status = SetStatus.Completed),
-            SetEntry(ExerciseCatalog.BarbellRow.slug, 1, isPriming = false, targetReps = 8, weightKg = 40.0, status = SetStatus.Completed),
-            SetEntry(ExerciseCatalog.BarbellRow.slug, 2, isPriming = false, targetReps = 8, weightKg = 40.0, status = SetStatus.Completed),
-            SetEntry(ExerciseCatalog.BarbellRow.slug, 3, isPriming = false, targetReps = 8, weightKg = 40.0, status = SetStatus.Completed),
-        ),
+        circuitWeightKg = 16.0,
+        sets = movement("lat_pulldown", 50.0, position = 0, lastStatus = SetStatus.Failed) +
+            movement("barbell_row", 40.0, position = 1),
+        bodyweightKg = 80.0,
     )
 
     @Test
@@ -69,10 +73,36 @@ class SessionRepositoryTest {
 
             val stored = repo.getByDate(original.date)
             assertThat(stored).isNotNull()
-            assertThat(stored!!.split).isEqualTo(Split.A)
+            assertThat(stored!!.dayKey).isEqualTo("A")
             assertThat(stored.feedback).isEqualTo(Feedback.Green)
-            assertThat(stored.kbWeightKg).isEqualTo(16.0)
+            assertThat(stored.circuitWeightKg).isEqualTo(16.0)
+            assertThat(stored.bodyweightKg).isEqualTo(80.0)
             assertThat(stored.sets).containsExactlyElementsIn(original.sets)
+        }
+    }
+
+    @Test
+    fun sets_read_back_in_the_order_they_were_performed() {
+        runBlocking {
+            repo.addSession(sampleSession())
+
+            val stored = repo.getByDate(LocalDate.of(2026, 5, 14))!!
+            assertThat(stored.sets.map { it.exerciseSlug }.distinct())
+                .containsExactly("lat_pulldown", "barbell_row").inOrder()
+            assertThat(stored.sets.first().isPriming).isTrue()
+        }
+    }
+
+    @Test
+    fun a_rep_range_survives_the_round_trip() {
+        runBlocking {
+            repo.addSession(sampleSession())
+
+            val working = repo.getByDate(LocalDate.of(2026, 5, 14))!!
+                .sets.first { !it.isPriming }
+            assertThat(working.targetReps).isEqualTo(8)
+            assertThat(working.targetRepsMax).isEqualTo(12)
+            assertThat(working.repRangeLabel).isEqualTo("8–12")
         }
     }
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,11 +35,14 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -47,13 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.ui.composed
-import com.kbminisplit.domain.model.Exercise
-import com.kbminisplit.domain.model.ExerciseMechanic
 import com.kbminisplit.domain.model.Feedback
-import com.kbminisplit.domain.model.Split
 import com.kbminisplit.ui.components.FeedbackDot
 import com.kbminisplit.ui.components.RestTimerBar
 import com.kbminisplit.ui.components.SetButton
@@ -69,7 +67,7 @@ fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
     var editingWeight by remember { mutableStateOf<WeightEditTarget?>(null) }
 
     // On days with an assisted lift, capture a current bodyweight up front: the
-    // Prime/Warm-up loads for assisted movements are derived from effective load, so
+    // lead-in loads for assisted movements are derived from effective load, so
     // we ask before the user starts. Handled once per day — dismissing won't re-open
     // it (the persistent banner remains for manual entry).
     val ready = state as? TrackerUiState.Ready
@@ -105,15 +103,22 @@ fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
                 .padding(padding),
         ) {
             when (val s = state) {
-                is TrackerUiState.Loading -> LoadingPlaceholder()
+                is TrackerUiState.Loading -> CenteredMessage("Loading…")
+                is TrackerUiState.NoProgram -> CenteredMessage(
+                    "No training days yet.\nAdd one in the Program tab.",
+                )
+
                 is TrackerUiState.Ready -> ReadyContent(
                     state = s,
                     onSetTap = viewModel::onSetTap,
                     onSetDoubleTap = viewModel::onSetDoubleTap,
                     onSetLongPress = viewModel::onSetLongPress,
                     onFeedback = viewModel::onFeedback,
-                    onBumpAccept = viewModel::onKbBumpAccept,
-                    onBumpSnooze = viewModel::onKbBumpSnooze,
+                    onBumpToggle = viewModel::onBumpToggle,
+                    onCircuitBumpAccept = viewModel::onCircuitBumpAccept,
+                    onCircuitBumpSnooze = viewModel::onCircuitBumpSnooze,
+                    onRestWeekAccept = viewModel::onRestWeekAccept,
+                    onRestWeekSnooze = viewModel::onRestWeekSnooze,
                 ) { editingWeight = it }
             }
         }
@@ -122,8 +127,8 @@ fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
     editingWeight?.let { target ->
         WeightEditDialog(
             title = when (target) {
-                is WeightEditTarget.Kb -> "Edit KB Flow weight"
-                is WeightEditTarget.Strength -> "Edit ${target.exercise.displayName} weight"
+                is WeightEditTarget.Circuit -> "Edit ${target.name} weight"
+                is WeightEditTarget.Movement -> "Edit ${target.name} weight"
                 is WeightEditTarget.Bodyweight -> "Weekly bodyweight"
             },
             fieldLabel = when (target) {
@@ -133,8 +138,12 @@ fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
             initialValue = target.weightKg,
             onConfirm = { newWeight ->
                 when (target) {
-                    is WeightEditTarget.Kb -> viewModel.onKbWeightChange(newWeight)
-                    is WeightEditTarget.Strength -> viewModel.onExerciseWeightChange(target.exercise.slug, newWeight)
+                    is WeightEditTarget.Circuit ->
+                        viewModel.onCircuitWeightChange(target.groupId, newWeight)
+
+                    is WeightEditTarget.Movement ->
+                        viewModel.onMovementWeightChange(target.programItemId, newWeight)
+
                     is WeightEditTarget.Bodyweight -> viewModel.onBodyweightEntered(newWeight)
                 }
                 editingWeight = null
@@ -146,8 +155,19 @@ fun TrackerScreen(viewModel: TrackerViewModel = hiltViewModel()) {
 
 private sealed interface WeightEditTarget {
     val weightKg: Double
-    data class Kb(override val weightKg: Double) : WeightEditTarget
-    data class Strength(val exercise: Exercise, override val weightKg: Double) : WeightEditTarget
+
+    data class Circuit(
+        val groupId: Long,
+        val name: String,
+        override val weightKg: Double,
+    ) : WeightEditTarget
+
+    data class Movement(
+        val programItemId: Long,
+        val name: String,
+        override val weightKg: Double,
+    ) : WeightEditTarget
+
     data class Bodyweight(override val weightKg: Double) : WeightEditTarget
 }
 
@@ -155,9 +175,19 @@ private sealed interface WeightEditTarget {
 private const val DEFAULT_BODYWEIGHT_KG = 80.0
 
 @Composable
-private fun LoadingPlaceholder() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("Loading…")
+private fun CenteredMessage(text: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -169,8 +199,11 @@ private fun ReadyContent(
     onSetDoubleTap: (SetCell) -> Unit,
     onSetLongPress: (SetCell) -> Unit,
     onFeedback: (Feedback) -> Unit,
-    onBumpAccept: () -> Unit,
-    onBumpSnooze: () -> Unit,
+    onBumpToggle: (Long) -> Unit,
+    onCircuitBumpAccept: (Long) -> Unit,
+    onCircuitBumpSnooze: (Long) -> Unit,
+    onRestWeekAccept: () -> Unit,
+    onRestWeekSnooze: () -> Unit,
     onWeightTap: (WeightEditTarget) -> Unit,
 ) {
     Column(
@@ -185,129 +218,69 @@ private fun ReadyContent(
             Spacer(Modifier.height(20.dp))
         }
 
-        Header(date = state.date, split = state.split)
+        Header(date = state.date, dayName = state.dayName)
 
         Spacer(Modifier.height(20.dp))
 
-        when (state.phase) {
-            TrackerPhase.MAIN -> MainBlock(
-                state = state,
-                onSetTap = onSetTap,
-                onSetDoubleTap = onSetDoubleTap,
-                onSetLongPress = onSetLongPress,
-                onBumpAccept = onBumpAccept,
-                onBumpSnooze = onBumpSnooze,
-                onWeightTap = onWeightTap,
-            )
+        if (state.restWeekPrompt) {
+            RestWeekBanner(onAccept = onRestWeekAccept, onSnooze = onRestWeekSnooze)
+            Spacer(Modifier.height(16.dp))
+        }
 
-            TrackerPhase.AUX -> AuxBlock(
-                aux = state.aux,
-                onSetTap = onSetTap,
-                onSetDoubleTap = onSetDoubleTap,
-                onSetLongPress = onSetLongPress,
-                onWeightTap = onWeightTap,
+        if (state.bodyweightPrompt) {
+            BodyweightBanner(
+                onUpdate = {
+                    onWeightTap(
+                        WeightEditTarget.Bodyweight(state.currentBodyweightKg ?: DEFAULT_BODYWEIGHT_KG),
+                    )
+                },
             )
+            Spacer(Modifier.height(16.dp))
+        }
+
+        state.groups.forEachIndexed { index, group ->
+            when (group) {
+                is GroupBlock.Circuit -> CircuitSection(
+                    block = group,
+                    onTap = onSetTap,
+                    onDoubleTap = onSetDoubleTap,
+                    onLongPress = onSetLongPress,
+                    onBumpAccept = { onCircuitBumpAccept(group.groupId) },
+                    onBumpSnooze = { onCircuitBumpSnooze(group.groupId) },
+                    onWeightTap = {
+                        onWeightTap(
+                            WeightEditTarget.Circuit(group.groupId, group.name, group.weightKg),
+                        )
+                    },
+                )
+
+                is GroupBlock.Standard -> StandardSection(
+                    block = group,
+                    onTap = onSetTap,
+                    onDoubleTap = onSetDoubleTap,
+                    onLongPress = onSetLongPress,
+                    onBumpToggle = onBumpToggle,
+                    onWeightTap = onWeightTap,
+                )
+            }
+            if (index < state.groups.lastIndex) {
+                Spacer(Modifier.height(20.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(20.dp))
+            }
         }
     }
 
-    // Spec §4.4: feedback is mandatory. Veto Hidden so swipe-down / back
-    // can't dismiss; the only exit is tapping one of the dots.
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true,
-    )
+    // Feedback is mandatory. Veto Hidden so swipe-down / back can't dismiss;
+    // the only exit is tapping one of the dots.
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     if (state.feedbackReady) {
         ModalBottomSheet(
-            onDismissRequest = { /* No-op: spec §4.4. */ },
+            onDismissRequest = { /* No-op: feedback is mandatory. */ },
             sheetState = sheetState,
         ) {
             FeedbackSheet(onFeedback = onFeedback)
-        }
-    }
-}
-
-@Composable
-private fun MainBlock(
-    state: TrackerUiState.Ready,
-    onSetTap: (SetCell) -> Unit,
-    onSetDoubleTap: (SetCell) -> Unit,
-    onSetLongPress: (SetCell) -> Unit,
-    onBumpAccept: () -> Unit,
-    onBumpSnooze: () -> Unit,
-    onWeightTap: (WeightEditTarget) -> Unit,
-) {
-    state.kbBump?.let { bump ->
-        KbBumpBanner(
-            bump = bump,
-            onAccept = onBumpAccept,
-            onSnooze = onBumpSnooze,
-        )
-        Spacer(Modifier.height(16.dp))
-    }
-
-    if (state.bodyweightPrompt) {
-        BodyweightBanner(
-            onUpdate = {
-                onWeightTap(
-                    WeightEditTarget.Bodyweight(state.currentBodyweightKg ?: DEFAULT_BODYWEIGHT_KG),
-                )
-            },
-        )
-        Spacer(Modifier.height(16.dp))
-    }
-
-    KbFlowSection(
-        kbWeightKg = state.kbWeightKg,
-        block = state.kbBlock,
-        onTap = onSetTap,
-        onDoubleTap = onSetDoubleTap,
-        onLongPress = onSetLongPress,
-        onWeightTap = { onWeightTap(WeightEditTarget.Kb(state.kbWeightKg)) },
-    )
-
-    Spacer(Modifier.height(20.dp))
-    HorizontalDivider()
-    Spacer(Modifier.height(20.dp))
-
-    state.strength.forEachIndexed { index, row ->
-        StrengthSection(
-            row = row,
-            onTap = onSetTap,
-            onDoubleTap = onSetDoubleTap,
-            onLongPress = onSetLongPress,
-            onWeightTap = { onWeightTap(WeightEditTarget.Strength(row.exercise, row.weightKg)) },
-        )
-        if (index < state.strength.lastIndex) {
-            Spacer(Modifier.height(20.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(20.dp))
-        }
-    }
-}
-
-@Composable
-private fun AuxBlock(
-    aux: List<StrengthMovementRow>,
-    onSetTap: (SetCell) -> Unit,
-    onSetDoubleTap: (SetCell) -> Unit,
-    onSetLongPress: (SetCell) -> Unit,
-    onWeightTap: (WeightEditTarget) -> Unit,
-) {
-    SectionTitle(text = "Auxiliary", modifier = Modifier.testTag("aux_block"))
-    Spacer(Modifier.height(20.dp))
-
-    aux.forEachIndexed { index, row ->
-        StrengthSection(
-            row = row,
-            onTap = onSetTap,
-            onDoubleTap = onSetDoubleTap,
-            onLongPress = onSetLongPress,
-            onWeightTap = { onWeightTap(WeightEditTarget.Strength(row.exercise, row.weightKg)) },
-        )
-        if (index < aux.lastIndex) {
-            Spacer(Modifier.height(20.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(20.dp))
         }
     }
 }
@@ -336,14 +309,14 @@ private fun FirstSessionBanner() {
 }
 
 @Composable
-private fun Header(date: LocalDate, split: Split) {
+private fun Header(date: LocalDate, dayName: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "${split.name} — ${split.label}",
+            text = dayName,
             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
         )
         Text(
@@ -354,90 +327,108 @@ private fun Header(date: LocalDate, split: Split) {
     }
 }
 
+/** Shared shell for the Tracker's prompt banners. */
 @Composable
-private fun KbBumpBanner(
-    bump: KbBumpState,
-    onAccept: () -> Unit,
-    onSnooze: () -> Unit,
+private fun BannerSurface(
+    testTag: String,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("kb_bump_banner"),
+            .testTag(testTag),
         tonalElevation = 2.dp,
         shape = MaterialTheme.shapes.medium,
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = "It's been 3 months — bump KB to ${formatKg(bump.targetKg)} kg?",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = onAccept) {
-                    Text("Bump to ${formatKg(bump.targetKg)} kg")
-                }
-                OutlinedButton(onClick = onSnooze) {
-                    Text("Not yet")
-                }
-            }
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun RestWeekBanner(onAccept: () -> Unit, onSnooze: () -> Unit) {
+    BannerSurface(testTag = "rest_week_banner") {
+        Text(
+            text = "That's two solid months of training. Take a rest week?",
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Text(
+            text = "Every movement drops one increment so you have a runway back up.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = onAccept) { Text("Take a rest week") }
+            OutlinedButton(onClick = onSnooze) { Text("Not yet") }
+        }
+    }
+}
+
+@Composable
+private fun CircuitBumpBanner(
+    bump: CircuitBumpState,
+    onAccept: () -> Unit,
+    onSnooze: () -> Unit,
+) {
+    BannerSurface(testTag = "circuit_bump_banner") {
+        Text(
+            text = "It's been 3 months — move up to ${formatKg(bump.targetKg)} kg?",
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(onClick = onAccept) { Text("Go to ${formatKg(bump.targetKg)} kg") }
+            OutlinedButton(onClick = onSnooze) { Text("Not yet") }
         }
     }
 }
 
 @Composable
 private fun BodyweightBanner(onUpdate: () -> Unit) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("bodyweight_banner"),
-        tonalElevation = 2.dp,
-        shape = MaterialTheme.shapes.medium,
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = "Weekly check-in — what's your bodyweight?",
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Button(onClick = onUpdate) {
-                Text("Update bodyweight")
-            }
-        }
+    BannerSurface(testTag = "bodyweight_banner") {
+        Text(
+            text = "Weekly check-in — what's your bodyweight?",
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Button(onClick = onUpdate) { Text("Update bodyweight") }
     }
 }
 
 @Composable
-private fun KbFlowSection(
-    kbWeightKg: Double,
-    block: KbBlock,
+private fun CircuitSection(
+    block: GroupBlock.Circuit,
     onTap: (SetCell) -> Unit,
     onDoubleTap: (SetCell) -> Unit,
     onLongPress: (SetCell) -> Unit,
+    onBumpAccept: () -> Unit,
+    onBumpSnooze: () -> Unit,
     onWeightTap: () -> Unit,
 ) {
+    block.bump?.let { bump ->
+        CircuitBumpBanner(bump = bump, onAccept = onBumpAccept, onSnooze = onBumpSnooze)
+        Spacer(Modifier.height(16.dp))
+    }
+
     SectionTitle(
-        text = "KB Flow · ${formatKg(kbWeightKg)} kg",
+        text = "${block.name} · ${formatKg(block.weightKg)} kg",
         modifier = Modifier.tripleClickable(onClick = onWeightTap),
     )
     Spacer(Modifier.height(12.dp))
-    block.movements.forEach { label ->
+    block.movements.forEach { movement ->
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = label.exercise.displayName,
+                text = movement.name,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = "x ${label.repsLabel}",
+                text = movement.repsLabel,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.End,
@@ -451,17 +442,17 @@ private fun KbFlowSection(
         horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        block.circuits.forEachIndexed { idx, cell ->
+        block.rounds.forEachIndexed { idx, cell ->
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "Circuit ${idx + 1}",
+                    text = "Round ${idx + 1}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(4.dp))
                 SetButton(
                     status = cell.status,
-                    contentDescription = "KB Flow circuit ${idx + 1}",
+                    contentDescription = "${block.name} round ${idx + 1}",
                     onComplete = { onTap(cell) },
                     onFail = { onDoubleTap(cell) },
                     onRevert = { onLongPress(cell) },
@@ -472,11 +463,40 @@ private fun KbFlowSection(
 }
 
 @Composable
-private fun StrengthSection(
-    row: StrengthMovementRow,
+private fun StandardSection(
+    block: GroupBlock.Standard,
     onTap: (SetCell) -> Unit,
     onDoubleTap: (SetCell) -> Unit,
     onLongPress: (SetCell) -> Unit,
+    onBumpToggle: (Long) -> Unit,
+    onWeightTap: (WeightEditTarget) -> Unit,
+) {
+    block.movements.forEachIndexed { index, row ->
+        MovementSection(
+            row = row,
+            onTap = onTap,
+            onDoubleTap = onDoubleTap,
+            onLongPress = onLongPress,
+            onBumpToggle = { onBumpToggle(row.programItemId) },
+            onWeightTap = {
+                onWeightTap(WeightEditTarget.Movement(row.programItemId, row.name, row.weightKg))
+            },
+        )
+        if (index < block.movements.lastIndex) {
+            Spacer(Modifier.height(20.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun MovementSection(
+    row: MovementRow,
+    onTap: (SetCell) -> Unit,
+    onDoubleTap: (SetCell) -> Unit,
+    onLongPress: (SetCell) -> Unit,
+    onBumpToggle: () -> Unit,
     onWeightTap: () -> Unit,
 ) {
     Row(
@@ -484,7 +504,7 @@ private fun StrengthSection(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = row.exercise.displayName,
+            text = row.name,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f),
@@ -499,22 +519,19 @@ private fun StrengthSection(
                 .tripleClickable(onClick = onWeightTap),
         )
         Text(
-            text = "x ${row.targetReps}",
+            text = row.repRangeLabel,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f),
             textAlign = TextAlign.End,
         )
     }
-    if (row.exercise.mechanic == ExerciseMechanic.ASSISTED) {
+    row.effectiveLoadKg?.let { effective ->
         Spacer(Modifier.height(4.dp))
         Text(
             // The logged number is machine assistance; effective load is shown once
             // a bodyweight has been entered for the week.
-            text = buildString {
-                append("Assistance")
-                row.effectiveLoadKg?.let { append(" · Effective ${formatKg(it)} kg") }
-            },
+            text = "Assistance · Effective ${formatKg(effective)} kg",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -525,23 +542,14 @@ private fun StrengthSection(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SetButtonWithLabel(
-            label = "Prime",
-            cell = row.prime,
-            // The number is the acclimatization load to plate up for this lead-in set.
-            centerText = formatKg(row.prime.weightKg),
-            contentDescription = "${row.exercise.displayName} priming set",
-            onTap = onTap,
-            onDoubleTap = onDoubleTap,
-            onLongPress = onLongPress,
-            modifier = Modifier.weight(1f),
-        )
-        row.warmup?.let { warmup ->
+        row.leadIn.forEachIndexed { idx, cell ->
+            val label = if (row.leadIn.size == 2 && idx == 0) "Prime" else "Warm-up"
             SetButtonWithLabel(
-                label = "Warm-up",
-                cell = warmup,
-                centerText = formatKg(warmup.weightKg),
-                contentDescription = "${row.exercise.displayName} warm-up set",
+                label = label,
+                cell = cell,
+                // The number is the acclimatization load to plate up for this lead-in set.
+                centerText = formatKg(cell.weightKg),
+                contentDescription = "${row.name} $label set",
                 onTap = onTap,
                 onDoubleTap = onDoubleTap,
                 onLongPress = onLongPress,
@@ -552,13 +560,57 @@ private fun StrengthSection(
             SetButtonWithLabel(
                 label = "Work",
                 cell = cell,
-                contentDescription = "${row.exercise.displayName} working set ${idx + 1}",
+                contentDescription = "${row.name} working set ${idx + 1}",
                 onTap = onTap,
                 onDoubleTap = onDoubleTap,
                 onLongPress = onLongPress,
                 modifier = Modifier.weight(1f),
             )
         }
+    }
+    row.bump?.let { bump ->
+        Spacer(Modifier.height(10.dp))
+        BumpChip(bump = bump, onClick = onBumpToggle)
+    }
+}
+
+/**
+ * The offer that appears the moment every working set of a movement is completed.
+ * Armed means next session starts at the new weight; tapping again gives it back.
+ */
+@Composable
+private fun BumpChip(bump: BumpState, onClick: () -> Unit) {
+    val label = if (bump.isArmed) {
+        "Next time: ${formatKg(bump.targetKg)} kg — tap to undo"
+    } else {
+        "All sets done · go to ${formatKg(bump.targetKg)} kg?"
+    }
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("bump_chip"),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = if (bump.isArmed) 6.dp else 2.dp,
+        color = if (bump.isArmed) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            textAlign = TextAlign.Center,
+            color = if (bump.isArmed) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp, horizontal = 12.dp),
+        )
     }
 }
 
@@ -708,12 +760,5 @@ private fun WeightEditDialog(
         },
     )
 }
-
-private val Split.label: String
-    get() = when (this) {
-        Split.A -> "Pull"
-        Split.B -> "Push"
-        Split.C -> "Legs"
-    }
 
 private val HEADER_DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM")

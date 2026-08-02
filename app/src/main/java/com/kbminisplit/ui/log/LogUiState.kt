@@ -2,11 +2,10 @@ package com.kbminisplit.ui.log
 
 import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.SetStatus
-import com.kbminisplit.domain.model.Split
 import java.time.LocalDate
 
 /**
- * Visual state of one calendar cell in the Log grid (spec §5.2).
+ * Visual state of one calendar cell in the Log grid.
  *
  * `Outside` represents a day that falls in an adjacent calendar month but is
  * rendered as blank padding so the Mon-Sun week stays aligned within the
@@ -47,22 +46,24 @@ sealed interface LogUiState {
     ) : LogUiState
 }
 
-/** Read-only session card shown when a colored cell is tapped (spec §5.2). */
+/** Read-only session card shown when a colored cell is tapped. */
 data class SessionDetail(
     val date: LocalDate,
-    val split: Split,
+    /** The day's name from the program, or its raw key if that day is long gone. */
+    val dayLabel: String,
     val feedback: Feedback,
-    val kbWeightKg: Double,
-    val kbCircuits: List<SetStatus>,
-    val strength: List<StrengthDetail>,
+    val movements: List<MovementDetail>,
 )
 
-data class StrengthDetail(
-    val exerciseDisplayName: String,
+/**
+ * One movement as it was performed, in session order.
+ *
+ * [repsLabel] is null for circuit rounds, which record completion rather than
+ * reps, and is a single number for sessions logged before rep ranges existed.
+ */
+data class MovementDetail(
+    val name: String,
     val weightKg: Double,
-    val targetReps: Int,
-    val primeStatus: SetStatus,
-    /** Null for historical sessions logged before the warm-up set existed. */
-    val warmupStatus: SetStatus?,
-    val workingStatuses: List<SetStatus>,
+    val repsLabel: String?,
+    val statuses: List<SetStatus>,
 )

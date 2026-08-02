@@ -1,14 +1,9 @@
 package com.kbminisplit.data.repository
 
 import com.kbminisplit.data.db.SettingsDao
-import com.kbminisplit.data.entity.StartingWeightEntity
 import com.kbminisplit.data.entity.UserSettingsEntity
-import com.kbminisplit.data.mapper.buildOnboardingDefaults
-import com.kbminisplit.data.mapper.toKbBumpSnooze
-import com.kbminisplit.domain.model.OnboardingDefaults
-import com.kbminisplit.domain.progression.KbBumpSnooze
+import com.kbminisplit.domain.progression.RestWeekState
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.time.Clock
 import javax.inject.Inject
@@ -23,19 +18,18 @@ class SettingsRepository @Inject constructor(
     private val clock: Clock,
 ) {
 
-    fun observeIsOnboarded(): Flow<Boolean> =
-        settingsDao.observe().map { it?.onboardedAt != null }
+    /**
+     * True until the user has seen the Program tab once. There is no onboarding
+     * wizard any more — this only decides which tab the app opens on.
+     */
+    fun observeIsFirstLaunch(): Flow<Boolean> =
+        settingsDao.observe().map { it?.onboardedAt == null }
 
-    fun observeOnboardingDefaults(): Flow<OnboardingDefaults?> =
-        combine(settingsDao.observe(), settingsDao.observeStartingWeights()) { s, w ->
-            buildOnboardingDefaults(s, w)
-        }
-
-    suspend fun getOnboardingDefaults(): OnboardingDefaults? =
-        buildOnboardingDefaults(settingsDao.get(), settingsDao.getStartingWeights())
-
-    fun observeKbBumpSnooze(): Flow<KbBumpSnooze?> =
-        settingsDao.observe().map { it.toKbBumpSnooze() }
+    suspend fun markProgramSeen() {
+        val existing = current()
+        if (existing.onboardedAt != null) return
+        settingsDao.upsert(existing.copy(onboardedAt = clock.millis()))
+    }
 
     fun observeIsDarkMode(): Flow<Boolean?> =
         settingsDao.observe().map { it?.isDarkMode }
@@ -47,97 +41,42 @@ class SettingsRepository @Inject constructor(
     fun observeBodyweight(): Flow<BodyweightState> =
         settingsDao.observe().map { BodyweightState(it?.bodyweightKg, it?.bodyweightLoggedAt) }
 
-    suspend fun saveOnboarding(defaults: OnboardingDefaults) {
-        val existing = settingsDao.get()
-        settingsDao.upsert(
-            UserSettingsEntity(
-                onboardedAt = existing?.onboardedAt ?: clock.millis(),
-                kbWeightKg = defaults.kbWeightKg,
-                startingTargetReps = defaults.startingTargetReps,
-                standardMaxReps = defaults.standardMaxReps,
-                kbBumpSnoozedAtMonth = existing?.kbBumpSnoozedAtMonth,
-                kbBumpSnoozeSessionCount = existing?.kbBumpSnoozeSessionCount,
-                isDarkMode = existing?.isDarkMode,
-                hapticLevel = existing?.hapticLevel ?: 1,
-            ),
-        )
-        settingsDao.upsertStartingWeights(
-            defaults.startingWeightsBySlug.map { (slug, w) ->
-                StartingWeightEntity(exerciseSlug = slug, weightKg = w)
-            },
-        )
-    }
+    fun observeRestWeek(): Flow<RestWeekState> =
+        settingsDao.observe().map {
+            RestWeekState(
+                anchorSessions = it?.restWeekAnchorSessions ?: 0,
+                snoozedAtSessions = it?.restWeekSnoozedAtSessions,
+            )
+        }
 
-    suspend fun saveKbBumpSnooze(snooze: KbBumpSnooze?) {
-        val existing = settingsDao.get() ?: return
+    /** Records a rest week taken at [historySize] sessions and clears any snooze. */
+    suspend fun takeRestWeek(historySize: Int) {
         settingsDao.upsert(
-            existing.copy(
-                kbBumpSnoozedAtMonth = snooze?.snoozedAtMonth?.toString(),
-                kbBumpSnoozeSessionCount = snooze?.sessionCountAtSnooze,
+            current().copy(
+                restWeekAnchorSessions = historySize,
+                restWeekSnoozedAtSessions = null,
             ),
         )
     }
 
-    /**
-     * Bump the persisted KB weight and clear any active snooze. Called from the
-     * Tracker after the user accepts the monthly KB bump prompt (spec §9.3).
-     */
-    suspend fun bumpKbWeight(newKg: Double) {
-        val existing = settingsDao.get() ?: return
-        settingsDao.upsert(
-            existing.copy(
-                kbWeightKg = newKg,
-                kbBumpSnoozedAtMonth = null,
-                kbBumpSnoozeSessionCount = null,
-            ),
-        )
-    }
-
-    suspend fun updateKbWeight(newKg: Double) {
-        val existing = settingsDao.get() ?: return
-        settingsDao.upsert(existing.copy(kbWeightKg = newKg))
-    }
-
-    suspend fun updateStartingWeight(slug: String, weightKg: Double) {
-        settingsDao.upsertStartingWeights(listOf(StartingWeightEntity(slug, weightKg)))
+    suspend fun snoozeRestWeek(historySize: Int) {
+        settingsDao.upsert(current().copy(restWeekSnoozedAtSessions = historySize))
     }
 
     /** Record a weekly bodyweight check-in. Stamped time drives the staleness prompt. */
     suspend fun updateBodyweight(weightKg: Double) {
-        val existing = settingsDao.get() ?: UserSettingsEntity(
-            onboardedAt = null,
-            kbWeightKg = null,
-            startingTargetReps = null,
-            standardMaxReps = null,
-            kbBumpSnoozedAtMonth = null,
-            kbBumpSnoozeSessionCount = null,
-        )
         settingsDao.upsert(
-            existing.copy(bodyweightKg = weightKg, bodyweightLoggedAt = clock.millis()),
+            current().copy(bodyweightKg = weightKg, bodyweightLoggedAt = clock.millis()),
         )
     }
 
     suspend fun setDarkMode(enabled: Boolean?) {
-        val existing = settingsDao.get() ?: UserSettingsEntity(
-            onboardedAt = null,
-            kbWeightKg = null,
-            startingTargetReps = null,
-            standardMaxReps = null,
-            kbBumpSnoozedAtMonth = null,
-            kbBumpSnoozeSessionCount = null,
-        )
-        settingsDao.upsert(existing.copy(isDarkMode = enabled))
+        settingsDao.upsert(current().copy(isDarkMode = enabled))
     }
 
     suspend fun setHapticLevel(level: Int) {
-        val existing = settingsDao.get() ?: UserSettingsEntity(
-            onboardedAt = null,
-            kbWeightKg = null,
-            startingTargetReps = null,
-            standardMaxReps = null,
-            kbBumpSnoozedAtMonth = null,
-            kbBumpSnoozeSessionCount = null,
-        )
-        settingsDao.upsert(existing.copy(hapticLevel = level))
+        settingsDao.upsert(current().copy(hapticLevel = level))
     }
+
+    private suspend fun current(): UserSettingsEntity = settingsDao.get() ?: UserSettingsEntity()
 }

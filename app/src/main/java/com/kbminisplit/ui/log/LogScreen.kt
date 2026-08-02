@@ -55,7 +55,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kbminisplit.domain.model.Feedback
 import com.kbminisplit.domain.model.SetStatus
-import com.kbminisplit.domain.model.Split
 import com.kbminisplit.ui.theme.FeedbackColors
 import com.kbminisplit.ui.theme.LocalHapticLevel
 import com.kbminisplit.ui.util.formatKg
@@ -313,7 +312,7 @@ private fun SessionDetailSheet(detail: SessionDetail) {
         ) {
             Column {
                 Text(
-                    text = "Session ${detail.split.name} · ${detail.split.label}",
+                    text = detail.dayLabel,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -327,23 +326,19 @@ private fun SessionDetailSheet(detail: SessionDetail) {
         }
         Spacer(Modifier.height(16.dp))
 
-        Text(
-            text = "KB Flow · ${formatKg(detail.kbWeightKg)} kg",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-        )
-        Spacer(Modifier.height(4.dp))
-        SetStatusRow(detail.kbCircuits)
-
-        detail.strength.forEach { row ->
-            Spacer(Modifier.height(12.dp))
+        detail.movements.forEachIndexed { index, movement ->
+            if (index > 0) Spacer(Modifier.height(12.dp))
             Text(
-                text = "${row.exerciseDisplayName} · ${formatKg(row.weightKg)} kg · target ${row.targetReps}",
+                text = buildString {
+                    append(movement.name)
+                    append(" · ${formatKg(movement.weightKg)} kg")
+                    movement.repsLabel?.let { append(" · $it reps") }
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
             )
             Spacer(Modifier.height(4.dp))
-            SetStatusRow(listOf(row.primeStatus) + listOfNotNull(row.warmupStatus) + row.workingStatuses)
+            SetStatusRow(movement.statuses)
         }
         Spacer(Modifier.height(12.dp))
     }
@@ -382,10 +377,3 @@ private fun FeedbackPip(feedback: Feedback) {
             .background(color),
     )
 }
-
-private val Split.label: String
-    get() = when (this) {
-        Split.A -> "Pull"
-        Split.B -> "Push"
-        Split.C -> "Legs"
-    }

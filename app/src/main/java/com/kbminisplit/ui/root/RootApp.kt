@@ -10,15 +10,18 @@ import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kbminisplit.ui.main.MainShell
-import com.kbminisplit.ui.onboarding.OnboardingScreen
 
+/**
+ * There is no onboarding wizard: a fresh install is seeded with a default program
+ * and opens on the Program tab, so the first thing you see is the thing you can
+ * change. Every later launch opens on the Tracker.
+ */
 @Composable
 fun RootApp(viewModel: RootViewModel = hiltViewModel()) {
-    val route by viewModel.route.collectAsStateWithLifecycle(initialValue = RootRoute.Loading)
-    when (route) {
-        RootRoute.Loading -> LoadingScaffold()
-        RootRoute.Onboarding -> OnboardingScreen()
-        RootRoute.Main -> MainShell()
+    val isFirstLaunch by viewModel.isFirstLaunch.collectAsStateWithLifecycle(initialValue = null)
+    when (val first = isFirstLaunch) {
+        null -> LoadingScaffold()
+        else -> MainShell(startOnProgram = first, rootViewModel = viewModel)
     }
 }
 

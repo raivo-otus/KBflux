@@ -1,7 +1,7 @@
 package com.kbminisplit.ui.tracker
 
-import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.hasTestTag
@@ -10,14 +10,13 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.kbminisplit.MainActivity
-import com.kbminisplit.data.repository.InProgressRepository
-import com.kbminisplit.data.repository.SessionRepository
+import com.kbminisplit.data.db.AppDatabase
+import com.kbminisplit.data.db.seedDefaultProgram
+import com.kbminisplit.data.db.seedExerciseRegistry
+import com.kbminisplit.data.repository.ProgramRepository
 import com.kbminisplit.data.repository.SettingsRepository
-import com.kbminisplit.domain.model.ExerciseCatalog
-import com.kbminisplit.domain.model.OnboardingDefaults
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import kotlinx.coroutines.runBlocking
@@ -41,13 +40,10 @@ class TrackerFlowTest {
     lateinit var settingsRepository: SettingsRepository
 
     @Inject
-    lateinit var sessionRepository: SessionRepository
+    lateinit var programRepository: ProgramRepository
 
     @Inject
-    lateinit var inProgressRepository: InProgressRepository
-
-    @Inject
-    lateinit var db: com.kbminisplit.data.db.AppDatabase
+    lateinit var db: AppDatabase
 
     @Before
     fun init() {
@@ -55,56 +51,39 @@ class TrackerFlowTest {
         runBlocking {
             db.inProgressDao().clear()
             db.sessionDao().clear()
+            db.programDao().clear()
             db.settingsDao().deleteSettings()
-            db.settingsDao().deleteStartingWeights()
 
-            settingsRepository.saveOnboarding(
-                OnboardingDefaults(
-                    kbWeightKg = 16.0,
-                    startingWeightsBySlug = mapOf(
-                        ExerciseCatalog.LatPulldown.slug to 40.0,
-                        ExerciseCatalog.BarbellRow.slug to 30.0,
-                        ExerciseCatalog.Bench.slug to 40.0,
-                        ExerciseCatalog.Ohp.slug to 30.0,
-                        ExerciseCatalog.HighBarSquat.slug to 40.0,
-                        ExerciseCatalog.RomanianDeadlift.slug to 60.0,
-                    ),
-                    startingTargetReps = 8,
-                    standardMaxReps = 12,
-                )
-            )
-            // Log a current bodyweight so the assisted-lift bodyweight check-in (which
-            // now auto-opens on Split B) stays dormant during the flow.
+            seedExerciseRegistry(db)
+            seedDefaultProgram(db, nowMillis = 0L)
+            settingsRepository.markProgramSeen()
+            // Log a current bodyweight so the assisted-lift check-in stays dormant.
             settingsRepository.updateBodyweight(80.0)
         }
     }
 
-    @Test
-    fun tapSet_changesState() {
-        // 1. Wait for Tracker
-        composeTestRule.waitUntil(timeoutMillis = 5000) {
+    private fun awaitTracker() {
+        composeTestRule.waitUntil(timeoutMillis = 10000) {
             composeTestRule.onAllNodes(hasTestTag("tracker_ready")).fetchSemanticsNodes().isNotEmpty()
         }
+    }
 
-        // 2. Initial state: Pending
+    @Test
+    fun tapSet_changesStateAndStartsTheRestGuide() {
+        awaitTracker()
+
         composeTestRule.onNode(
-            hasContentDescription("KB Flow circuit 1") and hasStateDescription("Pending")
+            hasContentDescription("Kettlebell flow round 1") and hasStateDescription("Pending")
         ).assertIsDisplayed()
 
-        // 3. Tap it
-        composeTestRule.onNodeWithContentDescription("KB Flow circuit 1").performClick()
+        composeTestRule.onNodeWithContentDescription("Kettlebell flow round 1").performClick()
 
-        // 4. State should be Completed
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onAllNodes(
-                hasContentDescription("KB Flow circuit 1") and hasStateDescription("Completed")
+                hasContentDescription("Kettlebell flow round 1") and hasStateDescription("Completed")
             ).fetchSemanticsNodes().isNotEmpty()
         }
-        composeTestRule.onNode(
-            hasContentDescription("KB Flow circuit 1") and hasStateDescription("Completed")
-        ).assertIsDisplayed()
 
-        // 5. Completing a set starts the rest guide.
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onAllNodes(hasTestTag("rest_timer")).fetchSemanticsNodes().isNotEmpty()
         }
@@ -113,70 +92,70 @@ class TrackerFlowTest {
 
     @Test
     fun completeSessionFlow() {
-        // 1. Verify Tracker is shown (Wait for bootstrap)
-        composeTestRule.waitUntil(timeoutMillis = 5000) {
-            composeTestRule.onAllNodes(hasTestTag("tracker_ready")).fetchSemanticsNodes().isNotEmpty()
-        }
+        awaitTracker()
 
-        // 2. Complete KB circuits (3 circuits)
+        // 1. The circuit's three rounds.
         for (i in 1..3) {
-            val desc = "KB Flow circuit $i"
+            val desc = "Kettlebell flow round $i"
             composeTestRule.onNodeWithContentDescription(desc).performClick()
-            composeTestRule.waitUntil(timeoutMillis = 2000) {
-                composeTestRule.onAllNodes(
-                    hasContentDescription(desc) and hasStateDescription("Completed")
-                ).fetchSemanticsNodes().isNotEmpty()
-            }
+            awaitCompleted(desc)
         }
 
-        // 3. Complete the two strength movements of Split A
-        completeMovement("Lat Pulldown")
-        completeMovement("Barbell Row")
+        // 2. The main block: two movements with prime + warm-up + three work sets.
+        completeMovement("Lat Pulldown", leadIns = listOf("Prime", "Warm-up"), workingSets = 3)
+        completeMovement("Barbell Row", leadIns = listOf("Prime", "Warm-up"), workingSets = 3)
 
-        // 4. Main resolved → aux block is appended automatically (no prompt).
+        // 3. Completing every set of a movement offers the next weight up.
         composeTestRule.waitUntil(timeoutMillis = 5000) {
-            composeTestRule.onAllNodes(hasTestTag("aux_block")).fetchSemanticsNodes().isNotEmpty()
+            composeTestRule.onAllNodes(hasTestTag("bump_chip")).fetchSemanticsNodes().isNotEmpty()
         }
-        completeMovement("Side-Delt Flyes")
-        completeMovement("Tricep Extensions")
-        completeMovement("Back Extensions")
 
-        // 5. Verify Feedback sheet appears
+        // 4. The accessory block reveals itself once the main work is resolved.
+        completeMovement("Side-Delt Flyes", leadIns = emptyList(), workingSets = 3)
+        completeMovement("Tricep Extensions", leadIns = emptyList(), workingSets = 3)
+        completeMovement("Back Extensions", leadIns = emptyList(), workingSets = 3)
+
+        // 5. Feedback is mandatory and appears only once everything is resolved.
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onAllNodes(hasTestTag("feedback_sheet")).fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("feedback_sheet").assertIsDisplayed()
 
-        // 6. Tap a feedback color (e.g., Green)
         composeTestRule.onNodeWithContentDescription("Feedback green").performClick()
 
-        // 7. Verify Navigation to Log
+        // 6. Committing navigates to the Log.
         composeTestRule.waitUntil(timeoutMillis = 5000) {
             composeTestRule.onAllNodes(hasTestTag("tab_log")).fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithTag("tab_log").assertIsSelected()
 
-        // 8. Click Tracker tab to see next prescription
+        // 7. The Tracker has already rolled over to the next day.
         composeTestRule.onNodeWithTag("tab_tracker").performClick()
-
-        // 9. Verify we are back on Tracker, now showing Split B
         composeTestRule.waitUntil(timeoutMillis = 10000) {
-            composeTestRule.onAllNodes(hasContentDescription("Bench Press priming set")).fetchSemanticsNodes().isNotEmpty()
+            composeTestRule.onAllNodes(hasContentDescription("Bench Press Prime set"))
+                .fetchSemanticsNodes().isNotEmpty()
         }
-        composeTestRule.onNodeWithContentDescription("Bench Press priming set").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Bench Press Prime set").assertIsDisplayed()
     }
 
-    /** Prime, warm-up, then the three working sets of [name], waiting out each state change. */
-    private fun completeMovement(name: String) {
-        val descriptions = listOf("$name priming set", "$name warm-up set") +
-            (1..3).map { "$name working set $it" }
+    private fun awaitCompleted(description: String) {
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodes(
+                hasContentDescription(description) and hasStateDescription("Completed")
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    /** Taps every button of a movement in order, waiting out each state change. */
+    private fun completeMovement(name: String, leadIns: List<String>, workingSets: Int) {
+        val descriptions = leadIns.map { "$name $it set" } +
+            (1..workingSets).map { "$name working set $it" }
         descriptions.forEach { desc ->
-            composeTestRule.onNodeWithContentDescription(desc).performScrollTo().performClick()
-            composeTestRule.waitUntil(timeoutMillis = 2000) {
-                composeTestRule.onAllNodes(
-                    hasContentDescription(desc) and hasStateDescription("Completed")
-                ).fetchSemanticsNodes().isNotEmpty()
+            composeTestRule.waitUntil(timeoutMillis = 5000) {
+                composeTestRule.onAllNodes(hasContentDescription(desc)).fetchSemanticsNodes().isNotEmpty()
             }
+            composeTestRule.onNodeWithContentDescription(desc).performScrollTo().performClick()
+            awaitCompleted(desc)
         }
     }
 }

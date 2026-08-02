@@ -1,23 +1,30 @@
 package com.kbminisplit.ui.tracker
 
 import com.google.common.truth.Truth.assertThat
+import com.kbminisplit.data.repository.BodyweightState
 import com.kbminisplit.data.repository.InProgressRepository
 import com.kbminisplit.data.repository.InProgressSnapshot
+import com.kbminisplit.data.repository.ProgramRepository
 import com.kbminisplit.data.repository.SessionRepository
 import com.kbminisplit.data.repository.SettingsRepository
-import com.kbminisplit.domain.model.ExerciseCatalog
 import com.kbminisplit.domain.model.Feedback
-import com.kbminisplit.domain.model.OnboardingDefaults
+import com.kbminisplit.domain.model.InProgressSet
+import com.kbminisplit.domain.model.Program
+import com.kbminisplit.domain.model.ProgramGroup
+import com.kbminisplit.domain.model.ProgramItem
 import com.kbminisplit.domain.model.Session
-import com.kbminisplit.domain.model.SetEntry
 import com.kbminisplit.domain.model.SetStatus
-import com.kbminisplit.domain.model.Split
-import com.kbminisplit.domain.progression.KbBumpSnooze
+import com.kbminisplit.domain.progression.REST_WEEK_SESSIONS
+import com.kbminisplit.domain.progression.RestWeekState
+import com.kbminisplit.domain.progression.circuitGroup
+import com.kbminisplit.domain.progression.day
+import com.kbminisplit.domain.progression.item
+import com.kbminisplit.domain.progression.program
+import com.kbminisplit.domain.progression.session
+import com.kbminisplit.domain.progression.standardGroup
 import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,7 +39,6 @@ import org.junit.Test
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
-import java.time.YearMonth
 import java.time.ZoneId
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -43,32 +49,44 @@ class TrackerViewModelTest {
         Clock.fixed(Instant.parse("2026-05-15T12:00:00Z"), ZoneId.of("UTC"))
     private val today: LocalDate = LocalDate.now(fixedClock)
 
-    private val defaults = OnboardingDefaults(
-        kbWeightKg = 16.0,
-        startingWeightsBySlug = mapOf(
-            ExerciseCatalog.LatPulldown.slug to 50.0,
-            ExerciseCatalog.BarbellRow.slug to 40.0,
-            ExerciseCatalog.Bench.slug to 60.0,
-            ExerciseCatalog.Ohp.slug to 35.0,
-            ExerciseCatalog.HighBarSquat.slug to 70.0,
-            ExerciseCatalog.RomanianDeadlift.slug to 80.0,
+    private val bench = item(1, "Bench Press", currentWeightKg = 60.0, weightStepKg = 2.5)
+    private val dips = item(
+        2, "Assisted Dips",
+        currentWeightKg = 40.0, weightStepKg = 2.5, isAssisted = true,
+    )
+    private val curl = item(3, "Bicep Curl", currentWeightKg = 10.0, leadInSets = 0, sets = 2)
+
+    /** Circuit + rotating main pair + a deferred accessory block. */
+    private val defaultProgram = program(
+        day(
+            1, "A", "Push",
+            groups = listOf(
+                circuitGroup(10, items = listOf(item(90, "Swings", minReps = 20, maxReps = 32))),
+                standardGroup(11, name = "Main", items = listOf(bench, dips)),
+                standardGroup(12, name = "Accessories", isDeferred = true, items = listOf(curl)),
+            ),
         ),
-        startingTargetReps = 8,
-        standardMaxReps = 12,
+        day(2, "B", "Pull", groups = listOf(standardGroup(20, items = listOf(item(4, "Row"))))),
     )
 
     private lateinit var sessionRepository: SessionRepository
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var inProgressRepository: InProgressRepository
+    private lateinit var programRepository: ProgramRepository
 
     private val inProgressFlow = MutableStateFlow<InProgressSnapshot?>(null)
     private val historyFlow = MutableStateFlow<List<Session>>(emptyList())
-    private val defaultsFlow = MutableStateFlow<OnboardingDefaults?>(defaults)
-    private val snoozeFlow = MutableStateFlow<KbBumpSnooze?>(null)
+    private val programFlow = MutableStateFlow(defaultProgram)
+    private val bodyweightFlow = MutableStateFlow(BodyweightState(80.0, fixedClock.millis()))
+    private val restWeekFlow = MutableStateFlow(RestWeekState())
+
+    private var nextRowId = 1L
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        nextRowId = 1L
+
         sessionRepository = mockk(relaxed = true) {
             every { observeAll() } returns historyFlow
             coEvery { getAll() } answers { historyFlow.value }
@@ -77,65 +95,79 @@ class TrackerViewModelTest {
                 1L
             }
         }
+
         settingsRepository = mockk(relaxed = true) {
-            every { observeOnboardingDefaults() } returns defaultsFlow
-            every { observeKbBumpSnooze() } returns snoozeFlow
-            coEvery { getOnboardingDefaults() } answers { defaultsFlow.value }
+            every { observeBodyweight() } returns bodyweightFlow
+            every { observeRestWeek() } returns restWeekFlow
+            coEvery { takeRestWeek(any()) } answers {
+                restWeekFlow.value = RestWeekState(anchorSessions = firstArg())
+            }
+            coEvery { snoozeRestWeek(any()) } answers {
+                restWeekFlow.value = restWeekFlow.value.copy(snoozedAtSessions = firstArg())
+            }
         }
+
+        programRepository = mockk(relaxed = true) {
+            every { observeProgram() } returns programFlow
+            coEvery { getProgram() } answers { programFlow.value }
+            coEvery { setItemWeight(any(), any()) } answers {
+                val itemId: Long = firstArg()
+                val kg: Double = secondArg()
+                programFlow.value = programFlow.value.mapItems { i ->
+                    if (i.id == itemId) i.copy(currentWeightKg = kg) else i
+                }
+            }
+            coEvery { deloadAllItems() } answers {
+                programFlow.value = programFlow.value.mapItems { i ->
+                    i.copy(
+                        currentWeightKg = if (i.isAssisted) {
+                            i.currentWeightKg + i.weightStepKg
+                        } else {
+                            (i.currentWeightKg - i.weightStepKg).coerceAtLeast(0.0)
+                        },
+                    )
+                }
+            }
+        }
+
         inProgressRepository = mockk(relaxed = true) {
             every { observe() } returns inProgressFlow
-            coEvery { get() } answers {
-                inProgressFlow.value
-            }
-            coEvery { start(any(), any(), any(), any()) } answers {
+            coEvery { get() } answers { inProgressFlow.value }
+            coEvery { start(any(), any(), any()) } answers {
                 @Suppress("UNCHECKED_CAST")
-                val sets = args[3] as List<SetEntry>
+                val sets = args[2] as List<InProgressSet>
                 inProgressFlow.value = InProgressSnapshot(
                     date = firstArg(),
-                    split = secondArg(),
-                    kbWeightKg = thirdArg(),
-                    sets = sets,
-                )
-            }
-            coEvery { updateKbWeight(any()) } answers {
-                val newKg: Double = firstArg()
-                val current = inProgressFlow.value ?: return@answers
-                inProgressFlow.value = current.copy(kbWeightKg = newKg)
-            }
-            coEvery { updateExerciseWeight(any(), any(), any()) } answers {
-                val slug: String = firstArg()
-                val newKg: Double = secondArg()
-                val newReps: Int? = thirdArg()
-                val current = inProgressFlow.value ?: return@answers
-                inProgressFlow.value = current.copy(
-                    sets = current.sets.map {
-                        if (it.exerciseSlug == slug) {
-                            it.copy(weightKg = newKg, targetReps = if (it.isPriming) it.targetReps else newReps)
-                        } else it
-                    },
+                    dayKey = secondArg(),
+                    sets = sets.map { it.copy(id = nextRowId++) },
                 )
             }
             coEvery { addSets(any()) } answers {
                 @Suppress("UNCHECKED_CAST")
-                val newSets = firstArg<List<SetEntry>>()
+                val sets = args[0] as List<InProgressSet>
                 val current = inProgressFlow.value ?: return@answers
-                inProgressFlow.value = current.copy(sets = current.sets + newSets)
+                inProgressFlow.value =
+                    current.copy(sets = current.sets + sets.map { it.copy(id = nextRowId++) })
             }
-            coEvery { clear() } answers { inProgressFlow.value = null }
-            coEvery { updateSetState(any(), any(), any(), any()) } answers {
-                val slug: String = firstArg()
-                val idx: Int = secondArg()
-                val priming: Boolean = thirdArg()
-                val newStatus = args[3] as SetStatus
+            coEvery { updateSetState(any(), any()) } answers {
+                val id: Long = firstArg()
+                val status: SetStatus = secondArg()
+                val current = inProgressFlow.value ?: return@answers
+                inProgressFlow.value = current.copy(
+                    sets = current.sets.map { if (it.id == id) it.copy(status = status) else it },
+                )
+            }
+            coEvery { updateItemWeight(any(), any()) } answers {
+                val itemId: Long = firstArg()
+                val kg: Double = secondArg()
                 val current = inProgressFlow.value ?: return@answers
                 inProgressFlow.value = current.copy(
                     sets = current.sets.map {
-                        if (it.exerciseSlug == slug && it.setIndex == idx && it.isPriming == priming) {
-                            it.copy(status = newStatus)
-                        } else it
+                        if (it.programItemId == itemId) it.copy(weightKg = kg) else it
                     },
                 )
             }
+            coEvery { clear() } answers { inProgressFlow.value = null }
         }
     }
 
@@ -148,785 +180,490 @@ class TrackerViewModelTest {
         sessionRepository = sessionRepository,
         settingsRepository = settingsRepository,
         inProgressRepository = inProgressRepository,
+        programRepository = programRepository,
         clock = fixedClock,
     )
 
-    // ---- Bootstrap ----
+    private fun Program.mapItems(transform: (ProgramItem) -> ProgramItem) =
+        mapGroups { it.copy(items = it.items.map(transform)) }
+
+    private fun Program.mapGroups(transform: (ProgramGroup) -> ProgramGroup) = copy(
+        days = days.map { d -> d.copy(groups = d.groups.map(transform)) },
+    )
+
+    private fun ready(vm: TrackerViewModel) = vm.state.value as TrackerUiState.Ready
+
+    private fun standardBlocks(vm: TrackerViewModel) =
+        ready(vm).groups.filterIsInstance<GroupBlock.Standard>()
+
+    private fun movement(vm: TrackerViewModel, name: String): MovementRow =
+        standardBlocks(vm).flatMap { it.movements }.first { it.name == name }
+
+    // ---- bootstrap ----
 
     @Test
-    fun `bootstrap writes fresh in-progress when none exists`() {
+    fun `an empty program reports NoProgram instead of a session`() {
         runTest(testDispatcher) {
-            newViewModel()
+            programFlow.value = Program.EMPTY
+            val vm = newViewModel()
             advanceUntilIdle()
 
-            coVerify(exactly = 1) { inProgressRepository.start(any(), any(), any(), any()) }
-            val snapshot = inProgressFlow.value!!
-            assertThat(snapshot.date).isEqualTo(today)
-            assertThat(snapshot.split).isEqualTo(Split.A)
-            assertThat(snapshot.kbWeightKg).isEqualTo(16.0)
-
-            // 3 KB circuits + 2 strength × (1 prime + 1 warm-up + 3 working) = 3 + 10 = 13
-            assertThat(snapshot.sets).hasSize(13)
-            assertThat(snapshot.sets.count { it.exerciseSlug == ExerciseCatalog.KbFlow.slug })
-                .isEqualTo(3)
+            assertThat(vm.state.value).isEqualTo(TrackerUiState.NoProgram)
         }
     }
 
     @Test
-    fun `bootstrap is a no-op when in-progress matches today's split`() {
-        inProgressFlow.value = InProgressSnapshot(
-            date = today,
-            split = Split.A,
-            kbWeightKg = 16.0,
-            sets = listOf(
-                SetEntry(
-                    exerciseSlug = ExerciseCatalog.KbFlow.slug,
-                    setIndex = 0,
-                    isPriming = false,
-                    targetReps = null,
-                    weightKg = 16.0,
-                    status = SetStatus.Pending,
-                ),
-                SetEntry(
-                    exerciseSlug = ExerciseCatalog.LatPulldown.slug,
-                    setIndex = 0,
-                    isPriming = true,
-                    targetReps = null,
-                    weightKg = 50.0,
-                    status = SetStatus.Pending,
-                ),
-                // Warm-up row (setIndex 1) — required since the freshness guard
-                // rebuilds any in-progress that predates the warm-up set.
-                SetEntry(
-                    exerciseSlug = ExerciseCatalog.LatPulldown.slug,
-                    setIndex = 1,
-                    isPriming = true,
-                    targetReps = null,
-                    weightKg = 50.0,
-                    status = SetStatus.Pending,
-                ),
-                SetEntry(
-                    exerciseSlug = ExerciseCatalog.BarbellRow.slug,
-                    setIndex = 0,
-                    isPriming = true,
-                    targetReps = null,
-                    weightKg = 40.0,
-                    status = SetStatus.Pending,
-                ),
-                SetEntry(
-                    exerciseSlug = ExerciseCatalog.BarbellRow.slug,
-                    setIndex = 1,
-                    isPriming = true,
-                    targetReps = null,
-                    weightKg = 40.0,
-                    status = SetStatus.Pending,
-                ),
-            ),
-        )
-        runTest(testDispatcher) {
-            newViewModel()
-            advanceUntilIdle()
-
-            coVerify(exactly = 0) { inProgressRepository.start(any(), any(), any(), any()) }
-        }
-    }
-
-    @Test
-    fun `bootstrap replaces in-progress that predates the kb_flow sentinel`() {
-        // Legacy snapshot from before the per-circuit refactor — no kb_flow row.
-        inProgressFlow.value = InProgressSnapshot(
-            date = today,
-            split = Split.A,
-            kbWeightKg = 16.0,
-            sets = listOf(
-                SetEntry(
-                    exerciseSlug = ExerciseCatalog.Swings.slug,
-                    setIndex = 0,
-                    isPriming = false,
-                    targetReps = null,
-                    weightKg = 16.0,
-                    status = SetStatus.Pending,
-                ),
-            ),
-        )
-        runTest(testDispatcher) {
-            newViewModel()
-            advanceUntilIdle()
-
-            coVerify(exactly = 1) { inProgressRepository.start(any(), any(), any(), any()) }
-            assertThat(inProgressFlow.value!!.sets.any { it.exerciseSlug == ExerciseCatalog.KbFlow.slug })
-                .isTrue()
-        }
-    }
-
-    @Test
-    fun `bootstrap replaces stale in-progress from a different date`() {
-        inProgressFlow.value = InProgressSnapshot(
-            date = today.minusDays(2),
-            split = Split.A,
-            kbWeightKg = 16.0,
-            sets = emptyList(),
-        )
-        runTest(testDispatcher) {
-            newViewModel()
-            advanceUntilIdle()
-
-            coVerify(exactly = 1) { inProgressRepository.start(any(), any(), any(), any()) }
-            assertThat(inProgressFlow.value!!.date).isEqualTo(today)
-        }
-    }
-
-    @Test
-    fun `bootstrap replaces in-progress whose split disagrees with expected`() {
-        // History ends on Split.A → expected next is Split.B; but in-progress says C.
-        historyFlow.value = listOf(
-            sessionAt(today.minusDays(3), Split.A),
-        )
-        inProgressFlow.value = InProgressSnapshot(
-            date = today,
-            split = Split.C,
-            kbWeightKg = 16.0,
-            sets = emptyList(),
-        )
-        runTest(testDispatcher) {
-            newViewModel()
-            advanceUntilIdle()
-
-            coVerify(exactly = 1) { inProgressRepository.start(any(), any(), any(), any()) }
-            assertThat(inProgressFlow.value!!.split).isEqualTo(Split.B)
-        }
-    }
-
-    @Test
-    fun `bootstrap waits if onboarding defaults are not yet ready`() {
-        defaultsFlow.value = null
-        coEvery { settingsRepository.getOnboardingDefaults() } returns null
-
-        runTest(testDispatcher) {
-            newViewModel()
-            advanceUntilIdle()
-
-            coVerify(exactly = 0) { inProgressRepository.start(any(), any(), any(), any()) }
-        }
-    }
-
-    // ---- State derivation ----
-
-    @Test
-    fun `state becomes Ready after bootstrap with all sets Pending`() {
+    fun `bootstrap builds today's first day from the program`() {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
 
-            val ready = vm.state.value as TrackerUiState.Ready
-            assertThat(ready.split).isEqualTo(Split.A)
-            assertThat(ready.kbBlock.movements).hasSize(3)
-            assertThat(ready.kbBlock.circuits).hasSize(3)
-            assertThat(ready.strength).hasSize(2)
-            assertThat(ready.strength.map { it.exercise.slug })
-                .containsExactly(ExerciseCatalog.LatPulldown.slug, ExerciseCatalog.BarbellRow.slug)
-                .inOrder()
-            assertThat(ready.mainResolved).isFalse()
+            val state = ready(vm)
+            assertThat(state.dayKey).isEqualTo("A")
+            assertThat(state.dayName).isEqualTo("Push")
+            assertThat(state.date).isEqualTo(today)
         }
     }
 
     @Test
-    fun `strength row carries weight and target reps from prescription`() {
+    fun `a circuit group renders one button per round`() {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
 
-            val ready = vm.state.value as TrackerUiState.Ready
-            val pulldown = ready.strength.first { it.exercise.slug == ExerciseCatalog.LatPulldown.slug }
-            assertThat(pulldown.weightKg).isEqualTo(50.0)
-            assertThat(pulldown.targetReps).isEqualTo(8)
-            assertThat(pulldown.working).hasSize(3)
+            val circuit = ready(vm).groups.filterIsInstance<GroupBlock.Circuit>().single()
+            assertThat(circuit.rounds).hasSize(3)
+            assertThat(circuit.weightKg).isEqualTo(16.0)
+            assertThat(circuit.movements.single().repsLabel).isEqualTo("20–32")
         }
     }
 
     @Test
-    fun `strength row exposes prime and warm-up acclimatization loads`() {
+    fun `a movement gets its programmed lead-in and working sets`() {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
 
-            val ready = vm.state.value as TrackerUiState.Ready
-            val pulldown = ready.strength.first { it.exercise.slug == ExerciseCatalog.LatPulldown.slug }
-            // Working 50 kg, traditional main lift (floor 20): prime 25, warm-up 37.5.
-            assertThat(pulldown.prime.weightKg).isEqualTo(25.0)
-            assertThat(pulldown.warmup).isNotNull()
-            assertThat(pulldown.warmup!!.weightKg).isEqualTo(37.5)
+            val row = movement(vm, "Bench Press")
+            assertThat(row.leadIn).hasSize(2)
+            assertThat(row.working).hasSize(3)
+            assertThat(row.weightKg).isEqualTo(60.0)
+            assertThat(row.repRangeLabel).isEqualTo("8–12")
         }
     }
 
     @Test
-    fun `kbBump is non-null when prompt is due and no KB sets touched`() {
-        // The current weight has been in use for 3 months → prompt due.
-        historyFlow.value = listOf(sessionAt(today.minusMonths(3), Split.C))
+    fun `reps are shown as a range, never as a single moving target`() {
         runTest(testDispatcher) {
+            historyFlow.value = listOf(
+                session(today.minusDays(6), "A"),
+                session(today.minusDays(4), "B"),
+            )
             val vm = newViewModel()
             advanceUntilIdle()
 
-            val ready = vm.state.value as TrackerUiState.Ready
-            assertThat(ready.kbBump).isNotNull()
-            assertThat(ready.kbBump!!.currentKg).isEqualTo(16.0)
-            // Target is the next kettlebell on the ladder, not a fixed step.
-            assertThat(ready.kbBump!!.targetKg).isEqualTo(20.0)
+            // Two prior sessions would once have pushed the target up; the range holds.
+            assertThat(movement(vm, "Bench Press").repRangeLabel).isEqualTo("8–12")
+            assertThat(movement(vm, "Bench Press").weightKg).isEqualTo(60.0)
         }
     }
 
     @Test
-    fun `kbBump is null once any KB set has been touched`() {
-        historyFlow.value = listOf(sessionAt(today.minusMonths(3), Split.C))
+    fun `the next day follows the last session in program order`() {
         runTest(testDispatcher) {
+            historyFlow.value = listOf(session(today.minusDays(1), "A"))
             val vm = newViewModel()
             advanceUntilIdle()
 
-            val ready = vm.state.value as TrackerUiState.Ready
-            val firstCircuit = ready.kbBlock.circuits.first()
-            vm.onSetTap(firstCircuit)
-            advanceUntilIdle()
-
-            val updated = vm.state.value as TrackerUiState.Ready
-            assertThat(updated.kbBump).isNull()
+            assertThat(ready(vm).dayKey).isEqualTo("B")
         }
     }
 
     @Test
-    fun `kb flow movements are themed to the split with positional rep labels`() {
+    fun `a rotating group flips its movements on the day's second appearance`() {
         runTest(testDispatcher) {
+            historyFlow.value = listOf(
+                session(today.minusDays(2), "A"),
+                session(today.minusDays(1), "B"),
+            )
             val vm = newViewModel()
             advanceUntilIdle()
 
-            // Fresh install bootstraps split A; weight never changed → full scheme.
-            val readyA = vm.state.value as TrackerUiState.Ready
-            assertThat(readyA.kbBlock.movements.map { it.exercise.slug }).containsExactly(
-                ExerciseCatalog.Swings.slug,
-                ExerciseCatalog.HighPull.slug,
-                ExerciseCatalog.GobletSquat.slug,
-            ).inOrder()
-            assertThat(readyA.kbBlock.movements.map { it.repsLabel })
-                .containsExactly("32", "16/side", "8").inOrder()
-
-            vm.forceSplit(Split.C)
-            advanceUntilIdle()
-
-            val readyC = vm.state.value as TrackerUiState.Ready
-            assertThat(readyC.kbBlock.movements.map { it.exercise.slug }).containsExactly(
-                ExerciseCatalog.Swings.slug,
-                ExerciseCatalog.GobletSquat.slug,
-                ExerciseCatalog.Snatch.slug,
-            ).inOrder()
-            assertThat(readyC.kbBlock.movements.map { it.repsLabel })
-                .containsExactly("32", "16", "8/side").inOrder()
+            val main = standardBlocks(vm).first { it.name == "Main" }
+            assertThat(main.movements.map { it.name })
+                .containsExactly("Assisted Dips", "Bench Press").inOrder()
         }
     }
 
     @Test
-    fun `kb rep labels ramp while a recent weight change settles in`() {
-        // Two sessions at 12 kg, then one at the current 16 kg → lowest ramp stage.
-        historyFlow.value = listOf(
-            sessionAt(today.minusDays(9), Split.A, kbWeight = 12.0),
-            sessionAt(today.minusDays(7), Split.B, kbWeight = 12.0),
-            sessionAt(today.minusDays(5), Split.C, kbWeight = 16.0),
-        )
+    fun `a movement with no lead-in sets gets only working buttons`() {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
+            resolveAllVisible(vm)
+            advanceUntilIdle()
 
-            val ready = vm.state.value as TrackerUiState.Ready
-            assertThat(ready.split).isEqualTo(Split.A)
-            assertThat(ready.kbBlock.movements.map { it.repsLabel })
-                .containsExactly("20", "10/side", "5").inOrder()
+            val row = movement(vm, "Bicep Curl")
+            assertThat(row.leadIn).isEmpty()
+            assertThat(row.working).hasSize(2)
         }
     }
 
-    // ---- Gesture handlers ----
-
     @Test
-    fun `tap completes a set`() {
+    fun `adding a movement in the Program tab rebuilds today's session`() {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
+            assertThat(standardBlocks(vm).first { it.name == "Main" }.movements).hasSize(2)
 
-            val ready = vm.state.value as TrackerUiState.Ready
-            val pulldownPrime = ready.strength.first { it.exercise.slug == ExerciseCatalog.LatPulldown.slug }.prime
-
-            vm.onSetTap(pulldownPrime)
-            advanceUntilIdle()
-
-            coVerify {
-                inProgressRepository.updateSetState(
-                    pulldownPrime.exerciseSlug,
-                    pulldownPrime.setIndex,
-                    pulldownPrime.isPriming,
-                    SetStatus.Completed,
-                )
+            programFlow.value = programFlow.value.mapGroups { group ->
+                if (group.id == 11L) {
+                    group.copy(items = group.items + item(5, "Face Pull", position = 2))
+                } else {
+                    group
+                }
             }
+            advanceUntilIdle()
+
+            assertThat(standardBlocks(vm).first { it.name == "Main" }.movements.map { it.name })
+                .containsExactly("Bench Press", "Assisted Dips", "Face Pull").inOrder()
+        }
+    }
+
+    // ---- deferred groups ----
+
+    @Test
+    fun `a deferred group stays hidden until the earlier work is resolved`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            assertThat(ready(vm).groups.map { it.name })
+                .containsExactly("Kettlebell flow", "Main").inOrder()
         }
     }
 
     @Test
-    fun `double-tap fails a set`() {
+    fun `the deferred group appears once everything before it resolves`() {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
-            val cell = (vm.state.value as TrackerUiState.Ready).strength.first().working.first()
 
-            vm.onSetDoubleTap(cell)
+            resolveAllVisible(vm)
             advanceUntilIdle()
 
-            coVerify {
-                inProgressRepository.updateSetState(
-                    cell.exerciseSlug,
-                    cell.setIndex,
-                    cell.isPriming,
-                    SetStatus.Failed,
-                )
-            }
+            assertThat(ready(vm).groups.map { it.name })
+                .containsExactly("Kettlebell flow", "Main", "Accessories").inOrder()
+            assertThat(ready(vm).feedbackReady).isFalse()
         }
     }
 
     @Test
-    fun `long-press reverts a set to Pending`() {
+    fun `feedback is offered only once every group is resolved`() {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
-            val cell = (vm.state.value as TrackerUiState.Ready).strength.first().working.first()
-
-            vm.onSetLongPress(cell)
+            resolveAllVisible(vm)
+            advanceUntilIdle()
+            resolveAllVisible(vm)
             advanceUntilIdle()
 
-            coVerify {
-                inProgressRepository.updateSetState(
-                    cell.exerciseSlug,
-                    cell.setIndex,
-                    cell.isPriming,
-                    SetStatus.Pending,
-                )
-            }
+            assertThat(ready(vm).feedbackReady).isTrue()
         }
     }
 
-    // ---- Commit flow ----
+    // ---- the bump chip ----
 
     @Test
-    fun `feedback commits session and re-bootstraps next split`() {
+    fun `no bump is offered while a movement is unfinished`() {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
-            resolveAllSets()
+
+            val row = movement(vm, "Bench Press")
+            vm.onSetTap(row.working.first())
             advanceUntilIdle()
 
-            // After commit the history grows, which rotates today's expected split.
-            val captured = slot<Session>()
-            coEvery { sessionRepository.addSession(capture(captured)) } answers {
-                historyFlow.value = historyFlow.value + captured.captured
-                42L
-            }
+            assertThat(movement(vm, "Bench Press").bump).isNull()
+        }
+    }
+
+    @Test
+    fun `completing every working set offers the next weight up`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            completeWorkingSets(vm, "Bench Press")
+            advanceUntilIdle()
+
+            val bump = movement(vm, "Bench Press").bump
+            assertThat(bump).isNotNull()
+            assertThat(bump!!.isArmed).isFalse()
+            assertThat(bump.targetKg).isEqualTo(62.5)
+        }
+    }
+
+    @Test
+    fun `a failed set offers no bump and leaves the weight alone`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            val row = movement(vm, "Bench Press")
+            vm.onSetTap(row.working[0])
+            vm.onSetTap(row.working[1])
+            vm.onSetDoubleTap(row.working[2])
+            advanceUntilIdle()
+
+            assertThat(movement(vm, "Bench Press").bump).isNull()
+            assertThat(programFlow.value.itemById(1)?.currentWeightKg).isEqualTo(60.0)
+        }
+    }
+
+    @Test
+    fun `taking the bump writes the new weight to the program, not to this session`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            completeWorkingSets(vm, "Bench Press")
+            advanceUntilIdle()
+
+            vm.onBumpToggle(1L)
+            advanceUntilIdle()
+
+            assertThat(programFlow.value.itemById(1)?.currentWeightKg).isEqualTo(62.5)
+            // The session still records the weight actually lifted.
+            assertThat(movement(vm, "Bench Press").weightKg).isEqualTo(60.0)
+            assertThat(movement(vm, "Bench Press").bump?.isArmed).isTrue()
+        }
+    }
+
+    @Test
+    fun `tapping an armed bump gives it back`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            completeWorkingSets(vm, "Bench Press")
+            advanceUntilIdle()
+            vm.onBumpToggle(1L)
+            advanceUntilIdle()
+
+            vm.onBumpToggle(1L)
+            advanceUntilIdle()
+
+            assertThat(programFlow.value.itemById(1)?.currentWeightKg).isEqualTo(60.0)
+            assertThat(movement(vm, "Bench Press").bump?.isArmed).isFalse()
+        }
+    }
+
+    @Test
+    fun `reverting a set disarms a bump that was already taken`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            completeWorkingSets(vm, "Bench Press")
+            advanceUntilIdle()
+            vm.onBumpToggle(1L)
+            advanceUntilIdle()
+
+            vm.onSetLongPress(movement(vm, "Bench Press").working.last())
+            advanceUntilIdle()
+
+            assertThat(programFlow.value.itemById(1)?.currentWeightKg).isEqualTo(60.0)
+            assertThat(movement(vm, "Bench Press").bump).isNull()
+        }
+    }
+
+    @Test
+    fun `an assisted movement bumps by dropping assistance`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            completeWorkingSets(vm, "Assisted Dips")
+            advanceUntilIdle()
+
+            assertThat(movement(vm, "Assisted Dips").bump?.targetKg).isEqualTo(37.5)
+        }
+    }
+
+    @Test
+    fun `an assisted movement shows its effective load`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            // Bodyweight 80, 40 kg of assistance.
+            assertThat(movement(vm, "Assisted Dips").effectiveLoadKg).isEqualTo(40.0)
+            assertThat(movement(vm, "Bench Press").effectiveLoadKg).isNull()
+        }
+    }
+
+    // ---- weight edits ----
+
+    @Test
+    fun `a manual weight edit changes both this session and the program`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            vm.onMovementWeightChange(1L, 65.0)
+            advanceUntilIdle()
+
+            assertThat(movement(vm, "Bench Press").weightKg).isEqualTo(65.0)
+            assertThat(programFlow.value.itemById(1)?.currentWeightKg).isEqualTo(65.0)
+        }
+    }
+
+    // ---- rest week ----
+
+    @Test
+    fun `the rest-week prompt appears after enough logged sessions`() {
+        runTest(testDispatcher) {
+            historyFlow.value = List(REST_WEEK_SESSIONS) { session(today.minusDays(1), "B") }
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            assertThat(ready(vm).restWeekPrompt).isTrue()
+        }
+    }
+
+    @Test
+    fun `taking a rest week drops every movement one increment`() {
+        runTest(testDispatcher) {
+            historyFlow.value = List(REST_WEEK_SESSIONS) { session(today.minusDays(1), "B") }
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            vm.onRestWeekAccept()
+            advanceUntilIdle()
+
+            assertThat(programFlow.value.itemById(1)?.currentWeightKg).isEqualTo(57.5)
+            // Assisted goes the other way: more assistance is the easier direction.
+            assertThat(programFlow.value.itemById(2)?.currentWeightKg).isEqualTo(42.5)
+            assertThat(ready(vm).restWeekPrompt).isFalse()
+        }
+    }
+
+    @Test
+    fun `snoozing the rest week hides the prompt for now`() {
+        runTest(testDispatcher) {
+            historyFlow.value = List(REST_WEEK_SESSIONS) { session(today.minusDays(1), "B") }
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            vm.onRestWeekSnooze()
+            advanceUntilIdle()
+
+            assertThat(ready(vm).restWeekPrompt).isFalse()
+        }
+    }
+
+    // ---- commit ----
+
+    @Test
+    fun `committing records the day key, the reps performed and the order`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+            resolveAllVisible(vm)
+            advanceUntilIdle()
+            resolveAllVisible(vm)
+            advanceUntilIdle()
 
             vm.onFeedback(Feedback.Green)
             advanceUntilIdle()
 
-            assertThat(captured.captured.feedback).isEqualTo(Feedback.Green)
-            assertThat(captured.captured.split).isEqualTo(Split.A)
-            // After commit + re-bootstrap, the in-progress now reflects Split.B.
-            assertThat(inProgressFlow.value!!.split).isEqualTo(Split.B)
+            val committed = historyFlow.value.single()
+            assertThat(committed.dayKey).isEqualTo("A")
+            assertThat(committed.feedback).isEqualTo(Feedback.Green)
+            assertThat(committed.circuitWeightKg).isEqualTo(16.0)
+            assertThat(committed.bodyweightKg).isEqualTo(80.0)
+
+            val benchSet = committed.sets.first { it.exerciseSlug == "bench_press" && !it.isPriming }
+            assertThat(benchSet.targetReps).isEqualTo(8)
+            assertThat(benchSet.targetRepsMax).isEqualTo(12)
+            // Circuit is position 0, then the two main movements, then the accessory.
+            assertThat(committed.sets.map { it.position }.distinct()).isInOrder()
         }
     }
 
     @Test
-    fun `feedback is a no-op while any set is still Pending`() {
+    fun `committing bootstraps the following day`() {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
-            // Don't resolve sets — they remain Pending.
-            vm.onFeedback(Feedback.Green)
+            resolveAllVisible(vm)
             advanceUntilIdle()
-
-            coVerify(exactly = 0) { sessionRepository.addSession(any()) }
-        }
-    }
-
-    // ---- KB bump actions ----
-
-    @Test
-    fun `accepting KB bump persists the next ladder weight and hides the prompt`() {
-        historyFlow.value = listOf(sessionAt(today.minusMonths(3), Split.C))
-        runTest(testDispatcher) {
-            val vm = newViewModel()
+            resolveAllVisible(vm)
             advanceUntilIdle()
-
-            coEvery { settingsRepository.bumpKbWeight(any()) } answers {
-                defaultsFlow.value = defaultsFlow.value!!.copy(kbWeightKg = firstArg()); testDispatcher.scheduler.runCurrent()
-            }
-
-            vm.onKbBumpAccept()
-            advanceUntilIdle()
-
-            coVerify { settingsRepository.bumpKbWeight(20.0) }
-            // No snooze stamp: the new weight has no completed sessions, which
-            // suppresses the prompt structurally.
-            coVerify(exactly = 0) { settingsRepository.saveKbBumpSnooze(any()) }
-            // Bootstrap re-ran and the new in-progress carries the bumped weight.
-            assertThat(inProgressFlow.value!!.kbWeightKg).isEqualTo(20.0)
-
-            val ready = vm.state.value as TrackerUiState.Ready
-            assertThat(ready.kbBump).isNull()
-            // Freshly bumped weight starts the rep ramp at its lowest stage.
-            assertThat(ready.kbBlock.movements.map { it.repsLabel })
-                .containsExactly("20", "10/side", "5").inOrder()
-        }
-    }
-
-    @Test
-    fun `snoozing KB bump records snooze with current history size`() {
-        historyFlow.value = listOf(
-            sessionAt(today.minusMonths(1).withDayOfMonth(5), Split.A),
-            sessionAt(today.minusMonths(1).withDayOfMonth(12), Split.B),
-        )
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-
-            var capturedSnooze: KbBumpSnooze? = null
-            coEvery { settingsRepository.saveKbBumpSnooze(any()) } answers {
-                capturedSnooze = firstArg()
-            }
-
-            vm.onKbBumpSnooze()
-            advanceUntilIdle()
-
-            assertThat(capturedSnooze?.snoozedAtMonth).isEqualTo(YearMonth.from(today))
-            assertThat(capturedSnooze?.sessionCountAtSnooze).isEqualTo(2)
-        }
-    }
-
-    @Test
-    fun `forceSplit replaces in-progress with specified split`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-            assertThat(inProgressFlow.value!!.split).isEqualTo(Split.A)
-
-            vm.forceSplit(Split.C)
-            advanceUntilIdle()
-
-            assertThat(inProgressFlow.value!!.split).isEqualTo(Split.C)
-        }
-    }
-
-    // ---- Manual weight overrides ----
-
-    @Test
-    fun `onExerciseWeightChange updates both in-progress and persisted settings and resets reps`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-            val slug = ExerciseCatalog.LatPulldown.slug
-            val minReps = ExerciseCatalog.LatPulldown.minReps
-
-            vm.onExerciseWeightChange(slug, 55.0)
-            advanceUntilIdle()
-
-            coVerify { inProgressRepository.updateExerciseWeight(slug, 55.0, minReps) }
-            coVerify { settingsRepository.updateStartingWeight(slug, 55.0) }
-
-            val ready = vm.state.value as TrackerUiState.Ready
-            val pulldown = ready.strength.first { it.exercise.slug == slug }
-            assertThat(pulldown.weightKg).isEqualTo(55.0)
-            assertThat(pulldown.targetReps).isEqualTo(minReps)
-        }
-    }
-
-    @Test
-    fun `onKbWeightChange updates both in-progress and persisted settings and updates UI`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-
-            vm.onKbWeightChange(20.0)
-            advanceUntilIdle()
-
-            coVerify { inProgressRepository.updateKbWeight(20.0) }
-            coVerify { inProgressRepository.updateExerciseWeight(ExerciseCatalog.KbFlow.slug, 20.0, null) }
-            coVerify { settingsRepository.updateKbWeight(20.0) }
-
-            val ready = vm.state.value as TrackerUiState.Ready
-            assertThat(ready.kbWeightKg).isEqualTo(20.0)
-        }
-    }
-
-    // ---- Auxiliary flow ----
-
-    @Test
-    fun `resolving main auto-appends aux and enters AUX phase`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-
-            resolveMainViaLastTap(vm)
-            advanceUntilIdle()
-
-            val ready = vm.state.value as TrackerUiState.Ready
-            assertThat(ready.mainResolved).isTrue()
-            assertThat(ready.phase).isEqualTo(TrackerPhase.AUX)
-            assertThat(ready.aux.map { it.exercise.slug }).containsExactly(
-                ExerciseCatalog.SideDeltFly.slug,
-                ExerciseCatalog.TricepExtension.slug,
-                ExerciseCatalog.BackExtension.slug,
-            ).inOrder()
-            ready.aux.forEach { row -> assertThat(row.working).hasSize(3) }
-            // Falls back to the movement's default starting weight (no history yet).
-            val fly = ready.aux.first { it.exercise.slug == ExerciseCatalog.SideDeltFly.slug }
-            assertThat(fly.weightKg).isEqualTo(6.0)
-            // Aux not yet resolved → no feedback sheet.
-            assertThat(ready.feedbackReady).isFalse()
-            coVerify(exactly = 1) { inProgressRepository.addSets(any()) }
-        }
-    }
-
-    @Test
-    fun `partial main resolution does not append aux`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-
-            val prime = (vm.state.value as TrackerUiState.Ready).strength.first().prime
-            vm.onSetTap(prime)
-            advanceUntilIdle()
-
-            coVerify(exactly = 0) { inProgressRepository.addSets(any()) }
-        }
-    }
-
-    @Test
-    fun `tapping an aux set does not re-append aux`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-            resolveMainViaLastTap(vm)
-            advanceUntilIdle()
-
-            val auxPrime = (vm.state.value as TrackerUiState.Ready).aux.first().prime
-            vm.onSetTap(auxPrime)
-            advanceUntilIdle()
-
-            coVerify(exactly = 1) { inProgressRepository.addSets(any()) }
-        }
-    }
-
-    @Test
-    fun `bootstrap appends aux to a kept snapshot whose main is fully resolved`() {
-        // Orphan states are reachable via an app update mid-session (the old
-        // build's prompt was declined or unanswered) or process death between
-        // the final set update and the append.
-        inProgressFlow.value = InProgressSnapshot(
-            date = today,
-            split = Split.A,
-            kbWeightKg = 16.0,
-            sets = listOf(
-                SetEntry(
-                    exerciseSlug = ExerciseCatalog.KbFlow.slug,
-                    setIndex = 0,
-                    isPriming = false,
-                    targetReps = null,
-                    weightKg = 16.0,
-                    status = SetStatus.Completed,
-                ),
-                SetEntry(
-                    exerciseSlug = ExerciseCatalog.LatPulldown.slug,
-                    setIndex = 0,
-                    isPriming = true,
-                    targetReps = null,
-                    weightKg = 50.0,
-                    status = SetStatus.Completed,
-                ),
-                SetEntry(
-                    exerciseSlug = ExerciseCatalog.LatPulldown.slug,
-                    setIndex = 1,
-                    isPriming = true,
-                    targetReps = null,
-                    weightKg = 50.0,
-                    status = SetStatus.Completed,
-                ),
-                SetEntry(
-                    exerciseSlug = ExerciseCatalog.BarbellRow.slug,
-                    setIndex = 0,
-                    isPriming = true,
-                    targetReps = null,
-                    weightKg = 40.0,
-                    status = SetStatus.Completed,
-                ),
-                SetEntry(
-                    exerciseSlug = ExerciseCatalog.BarbellRow.slug,
-                    setIndex = 1,
-                    isPriming = true,
-                    targetReps = null,
-                    weightKg = 40.0,
-                    status = SetStatus.Completed,
-                ),
-            ),
-        )
-        runTest(testDispatcher) {
-            newViewModel()
-            advanceUntilIdle()
-
-            coVerify(exactly = 0) { inProgressRepository.start(any(), any(), any(), any()) }
-            coVerify(exactly = 1) { inProgressRepository.addSets(any()) }
-            assertThat(inProgressFlow.value!!.sets.any { it.exerciseSlug == ExerciseCatalog.SideDeltFly.slug })
-                .isTrue()
-        }
-    }
-
-    @Test
-    fun `feedback after aux commits main and aux sets in one session`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-            resolveMainViaLastTap(vm)
-            advanceUntilIdle()
-            resolveAllSets() // resolves the freshly appended aux rows too
-            advanceUntilIdle()
-
-            val ready = vm.state.value as TrackerUiState.Ready
-            assertThat(ready.feedbackReady).isTrue()
-
-            val captured = slot<Session>()
-            coEvery { sessionRepository.addSession(capture(captured)) } answers {
-                historyFlow.value = historyFlow.value + captured.captured
-                7L
-            }
 
             vm.onFeedback(Feedback.Green)
             advanceUntilIdle()
 
-            val auxSlugs = ExerciseCatalog.auxForSplit(Split.A).map { it.slug }.toSet()
-            // 3 aux movements × (1 prime + 1 warm-up + 3 working) = 15 aux sets.
-            assertThat(captured.captured.sets.count { it.exerciseSlug in auxSlugs }).isEqualTo(15)
-            // 13 main (3 KB + 2×5) + 15 aux = 28.
-            assertThat(captured.captured.sets).hasSize(28)
+            assertThat(ready(vm).dayKey).isEqualTo("B")
         }
     }
 
-    // ---- Rest timer ----
+    // ---- admin ----
 
     @Test
-    fun `completing a set starts the rest timer at the clock now`() {
+    fun `forcing a day rebuilds the session on that day`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            vm.forceDay("B")
+            advanceUntilIdle()
+
+            assertThat(ready(vm).dayKey).isEqualTo("B")
+            assertThat(ready(vm).dayName).isEqualTo("Pull")
+        }
+    }
+
+    @Test
+    fun `the day list is exposed for the admin picker`() {
+        runTest(testDispatcher) {
+            val vm = newViewModel()
+            advanceUntilIdle()
+
+            assertThat(vm.days.value.map { it.key }).containsExactly("A", "B").inOrder()
+        }
+    }
+
+    // ---- rest guide ----
+
+    @Test
+    fun `resolving a set starts the rest guide and reverting one does not clear it`() {
         runTest(testDispatcher) {
             val vm = newViewModel()
             advanceUntilIdle()
             assertThat(vm.restStartedAtMillis.value).isNull()
 
-            vm.onSetTap((vm.state.value as TrackerUiState.Ready).strength.first().prime)
-            advanceUntilIdle()
-
-            assertThat(vm.restStartedAtMillis.value).isEqualTo(fixedClock.millis())
-        }
-    }
-
-    @Test
-    fun `failing a set also restarts the rest timer`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-
-            vm.onSetDoubleTap((vm.state.value as TrackerUiState.Ready).strength.first().working.first())
-            advanceUntilIdle()
-
-            assertThat(vm.restStartedAtMillis.value).isEqualTo(fixedClock.millis())
-        }
-    }
-
-    @Test
-    fun `revert neither starts nor clears the rest timer`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-            val cell = (vm.state.value as TrackerUiState.Ready).strength.first().prime
-
-            vm.onSetLongPress(cell)
-            advanceUntilIdle()
-            assertThat(vm.restStartedAtMillis.value).isNull()
-
-            vm.onSetTap(cell)
-            advanceUntilIdle()
-            vm.onSetLongPress(cell)
+            val row = movement(vm, "Bench Press")
+            vm.onSetTap(row.working.first())
             advanceUntilIdle()
             assertThat(vm.restStartedAtMillis.value).isEqualTo(fixedClock.millis())
-        }
-    }
 
-    @Test
-    fun `committing a session clears the rest timer`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
+            vm.onSetLongPress(movement(vm, "Bench Press").working.first())
             advanceUntilIdle()
-            resolveMainViaLastTap(vm)
-            advanceUntilIdle()
-            resolveAllSets()
-            advanceUntilIdle()
-            assertThat(vm.restStartedAtMillis.value).isNotNull()
-
-            vm.onFeedback(Feedback.Green)
-            advanceUntilIdle()
-
-            assertThat(vm.restStartedAtMillis.value).isNull()
-        }
-    }
-
-    @Test
-    fun `forceSplit clears the rest timer`() {
-        runTest(testDispatcher) {
-            val vm = newViewModel()
-            advanceUntilIdle()
-            vm.onSetTap((vm.state.value as TrackerUiState.Ready).strength.first().prime)
-            advanceUntilIdle()
-            assertThat(vm.restStartedAtMillis.value).isNotNull()
-
-            vm.forceSplit(Split.C)
-            advanceUntilIdle()
-
-            assertThat(vm.restStartedAtMillis.value).isNull()
+            assertThat(vm.restStartedAtMillis.value).isEqualTo(fixedClock.millis())
         }
     }
 
     // ---- helpers ----
 
-    private fun sessionAt(date: LocalDate, split: Split, kbWeight: Double = 16.0) = Session(
-        date = date,
-        split = split,
-        feedback = Feedback.Green,
-        kbWeightKg = kbWeight,
-        sets = emptyList(),
-    )
-
-    private fun resolveAllSets() {
-        val current = inProgressFlow.value!!
-        inProgressFlow.value = current.copy(
-            sets = current.sets.map { it.copy(status = SetStatus.Completed) },
-        )
+    /** Marks every currently visible button complete. */
+    private fun resolveAllVisible(vm: TrackerViewModel) {
+        ready(vm).groups.forEach { group ->
+            when (group) {
+                is GroupBlock.Circuit -> group.rounds.forEach(vm::onSetTap)
+                is GroupBlock.Standard -> group.movements.forEach { row ->
+                    (row.leadIn + row.working).forEach(vm::onSetTap)
+                }
+            }
+        }
     }
 
-    /**
-     * Resolves every set but the last via the flow, then taps the last one
-     * through the ViewModel: the auto-aux append fires from updateSet, so at
-     * least the final resolve must go through the real path.
-     */
-    private fun resolveMainViaLastTap(vm: TrackerViewModel) {
-        val current = inProgressFlow.value!!
-        val last = current.sets.last()
-        inProgressFlow.value = current.copy(
-            sets = current.sets.dropLast(1).map { it.copy(status = SetStatus.Completed) } + last,
-        )
-        vm.onSetTap(
-            SetCell(
-                exerciseSlug = last.exerciseSlug,
-                setIndex = last.setIndex,
-                isPriming = last.isPriming,
-                status = last.status,
-                weightKg = last.weightKg,
-            ),
-        )
+    private fun completeWorkingSets(vm: TrackerViewModel, name: String) {
+        movement(vm, name).working.forEach(vm::onSetTap)
     }
 }

@@ -1,43 +1,46 @@
 package com.kbminisplit.domain.progression
 
-import com.kbminisplit.domain.model.Category
-import com.kbminisplit.domain.model.Exercise
 import com.kbminisplit.domain.model.ExerciseMechanic
 import kotlin.math.roundToInt
 
 /**
- * Acclimatization loads for the two lead-in sets of every strength movement — the
- * numbers shown *inside* the Prime and Warm-up circles on the Tracker.
+ * Acclimatization loads for a movement's lead-in sets — the numbers shown *inside*
+ * the Prime and Warm-up circles on the Tracker.
  *
  *  - Prime   → [PRIME_FRACTION] (50%) of the working load
  *  - Warm-up → [WARMUP_FRACTION] (75%) of the working load
  *
  * The number is "what you set on the equipment": the load for a traditional lift,
- * the assistance pin for an assisted one. Both are rounded to [ACCLIMATIZATION_STEP_KG]
- * so the target is realistic to plate up, and floored so a light movement still has a
- * sensible lead-in ([MAIN_FLOOR_KG] for main lifts, [AUX_FLOOR_KG] for auxiliaries).
+ * the assistance pin for an assisted one. Both are rounded to
+ * [ACCLIMATIZATION_STEP_KG] so the target is realistic to plate up.
  *
- * Derived on the fly (never stored), mirroring how prescriptions and effective load
- * are computed rather than persisted.
+ * How many circles a movement gets is programmed per entry (`leadInSets`), which
+ * is why the floor no longer needs to know whether something is a main lift or an
+ * accessory: a movement light enough to make a ramp pointless is simply given no
+ * lead-in sets.
+ *
+ * Derived on the fly, never stored.
  */
 
 const val ACCLIMATIZATION_STEP_KG = 2.5
 const val PRIME_FRACTION = 0.50
 const val WARMUP_FRACTION = 0.75
 
-private const val MAIN_FLOOR_KG = 20.0
-private const val AUX_FLOOR_KG = 5.0
+private const val LEAD_IN_FLOOR_KG = 20.0
 
 /** Round to the nearest [step] (2.5 kg by default) so the number is platable. */
 fun roundToStepKg(value: Double, step: Double = ACCLIMATIZATION_STEP_KG): Double =
     (value / step).roundToInt() * step
 
-/** The acclimatization floor: heavier for main lifts (A/B/C) than for auxiliaries. */
-fun acclimatizationFloorKg(exercise: Exercise): Double =
-    if (exercise.category == Category.AUX) AUX_FLOOR_KG else MAIN_FLOOR_KG
+/**
+ * The floor a lead-in never drops below: a fixed 20 kg for anything heavier than
+ * that, and the working load itself for anything lighter, so the ramp can never
+ * ask for more than the work set.
+ */
+fun acclimatizationFloorKg(workingKg: Double): Double = minOf(LEAD_IN_FLOOR_KG, workingKg)
 
 /**
- * The weight to show inside a Prime/Warm-up circle for a strength movement.
+ * The weight to show inside a Prime/Warm-up circle.
  *
  * TRADITIONAL: [fraction] of the working load, rounded to 2.5 kg, floored at [floorKg],
  * and never heavier than the work set (guards very light or bodyweight movements).

@@ -1,87 +1,154 @@
 package com.kbminisplit.domain.progression
 
-import com.kbminisplit.domain.model.Exercise
-import com.kbminisplit.domain.model.ExerciseCatalog
 import com.kbminisplit.domain.model.Feedback
-import com.kbminisplit.domain.model.OnboardingDefaults
+import com.kbminisplit.domain.model.GroupKind
+import com.kbminisplit.domain.model.Program
+import com.kbminisplit.domain.model.ProgramDay
+import com.kbminisplit.domain.model.ProgramGroup
+import com.kbminisplit.domain.model.ProgramItem
 import com.kbminisplit.domain.model.Session
 import com.kbminisplit.domain.model.SetEntry
 import com.kbminisplit.domain.model.SetStatus
-import com.kbminisplit.domain.model.Split
 import java.time.LocalDate
 
-/** Builds the working sets (3 of them) for a strength movement at a given weight/reps. */
-internal fun workingSets(
-    exercise: Exercise,
-    weight: Double,
-    reps: Int,
-    statuses: List<SetStatus> = List(3) { SetStatus.Completed },
-): List<SetEntry> {
-    require(statuses.size == 3) { "Working block has 3 sets, got ${statuses.size}" }
-    return statuses.mapIndexed { idx, s ->
-        SetEntry(
-            exerciseSlug = exercise.slug,
-            setIndex = idx + 1, // 0 is the prime
-            isPriming = false,
-            targetReps = reps,
-            weightKg = weight,
-            status = s,
-        )
-    }
-}
-
-internal fun primingSet(exercise: Exercise, weight: Double): SetEntry =
-    SetEntry(
-        exerciseSlug = exercise.slug,
-        setIndex = 0,
-        isPriming = true,
-        targetReps = null,
-        weightKg = weight,
-        status = SetStatus.Completed,
-    )
-
 /**
- * A canonical strength session containing prime + 3 working sets for both
- * movements of `split` at the given weight/reps. Working sets default to all completed.
+ * Builders for program and history fixtures. Ids are supplied explicitly so a test
+ * can address a specific movement without reaching through the tree.
  */
-internal fun strengthSession(
-    date: LocalDate,
-    split: Split,
-    kbWeight: Double = 16.0,
-    feedback: Feedback = Feedback.Green,
-    m1Weight: Double,
-    m1Reps: Int,
-    m1Statuses: List<SetStatus> = List(3) { SetStatus.Completed },
-    m2Weight: Double = m1Weight,
-    m2Reps: Int = m1Reps,
-    m2Statuses: List<SetStatus> = List(3) { SetStatus.Completed },
-): Session {
-    val (m1, m2) = ExerciseCatalog.strengthForSplit(split)
-    val sets = buildList {
-        add(primingSet(m1, m1Weight - 10.0))
-        addAll(workingSets(m1, m1Weight, m1Reps, m1Statuses))
-        add(primingSet(m2, m2Weight - 10.0))
-        addAll(workingSets(m2, m2Weight, m2Reps, m2Statuses))
-    }
-    return Session(
-        date = date,
-        split = split,
-        feedback = feedback,
-        kbWeightKg = kbWeight,
-        sets = sets,
+
+internal fun item(
+    id: Long,
+    name: String,
+    slug: String = name.lowercase().replace(' ', '_'),
+    position: Int = 0,
+    sets: Int = 3,
+    minReps: Int = 8,
+    maxReps: Int = 12,
+    leadInSets: Int = 2,
+    weightStepKg: Double = 2.5,
+    isAssisted: Boolean = false,
+    isPerSide: Boolean = false,
+    currentWeightKg: Double = 50.0,
+) = ProgramItem(
+    id = id,
+    exerciseSlug = slug,
+    name = name,
+    position = position,
+    sets = sets,
+    minReps = minReps,
+    maxReps = maxReps,
+    leadInSets = leadInSets,
+    weightStepKg = weightStepKg,
+    isAssisted = isAssisted,
+    isPerSide = isPerSide,
+    currentWeightKg = currentWeightKg,
+)
+
+internal fun standardGroup(
+    id: Long,
+    name: String = "Main",
+    position: Int = 0,
+    rotates: Boolean = true,
+    isDeferred: Boolean = false,
+    items: List<ProgramItem>,
+) = ProgramGroup(
+    id = id,
+    name = name,
+    kind = GroupKind.STANDARD,
+    position = position,
+    rotates = rotates,
+    isDeferred = isDeferred,
+    rounds = 0,
+    circuitSlug = null,
+    weightKg = null,
+    usesLadder = false,
+    weightChangedAt = null,
+    bumpSnoozedAt = null,
+    items = items.mapIndexed { index, item -> item.copy(position = index) },
+)
+
+internal fun circuitGroup(
+    id: Long,
+    name: String = "Kettlebell flow",
+    position: Int = 0,
+    rounds: Int = 3,
+    circuitSlug: String = "kb_flow",
+    weightKg: Double? = 16.0,
+    usesLadder: Boolean = true,
+    weightChangedAt: Long? = 0L,
+    bumpSnoozedAt: Long? = null,
+    rotates: Boolean = false,
+    items: List<ProgramItem> = emptyList(),
+) = ProgramGroup(
+    id = id,
+    name = name,
+    kind = GroupKind.CIRCUIT,
+    position = position,
+    rotates = rotates,
+    isDeferred = false,
+    rounds = rounds,
+    circuitSlug = circuitSlug,
+    weightKg = weightKg,
+    usesLadder = usesLadder,
+    weightChangedAt = weightChangedAt,
+    bumpSnoozedAt = bumpSnoozedAt,
+    items = items.mapIndexed { index, item -> item.copy(position = index) },
+)
+
+internal fun day(
+    id: Long,
+    key: String,
+    name: String = "Day $key",
+    position: Int = 0,
+    groups: List<ProgramGroup> = emptyList(),
+) = ProgramDay(
+    id = id,
+    key = key,
+    name = name,
+    position = position,
+    groups = groups.mapIndexed { index, group -> group.copy(position = index) },
+)
+
+internal fun program(vararg days: ProgramDay) =
+    Program(days.mapIndexed { index, day -> day.copy(position = index) })
+
+/** Working sets for one movement, in session order. */
+internal fun workingSets(
+    slug: String,
+    weightKg: Double,
+    minReps: Int = 8,
+    maxReps: Int = 12,
+    position: Int = 0,
+    statuses: List<SetStatus> = List(3) { SetStatus.Completed },
+): List<SetEntry> = statuses.mapIndexed { index, status ->
+    SetEntry(
+        exerciseSlug = slug,
+        setIndex = index + 1,
+        isPriming = false,
+        targetReps = minReps,
+        targetRepsMax = maxReps,
+        weightKg = weightKg,
+        status = status,
+        position = position,
     )
 }
 
-internal val DEFAULT_ONBOARDING = OnboardingDefaults(
-    kbWeightKg = 16.0,
-    startingWeightsBySlug = mapOf(
-        ExerciseCatalog.LatPulldown.slug to 50.0,
-        ExerciseCatalog.BarbellRow.slug to 40.0,
-        ExerciseCatalog.Bench.slug to 60.0,
-        ExerciseCatalog.Ohp.slug to 35.0,
-        ExerciseCatalog.HighBarSquat.slug to 70.0,
-        ExerciseCatalog.RomanianDeadlift.slug to 80.0,
-    ),
-    startingTargetReps = 8,
-    standardMaxReps = 12,
+internal fun session(
+    date: LocalDate,
+    dayKey: String,
+    feedback: Feedback = Feedback.Green,
+    circuitWeightKg: Double = 16.0,
+    sets: List<SetEntry> = emptyList(),
+    bodyweightKg: Double? = null,
+) = Session(
+    date = date,
+    dayKey = dayKey,
+    feedback = feedback,
+    circuitWeightKg = circuitWeightKg,
+    sets = sets,
+    bodyweightKg = bodyweightKg,
 )
+
+/** [count] sessions on [dayKey], one day apart from [start]. */
+internal fun sessions(dayKey: String, count: Int, start: LocalDate): List<Session> =
+    List(count) { index -> session(start.plusDays(index.toLong()), dayKey) }

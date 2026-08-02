@@ -49,13 +49,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.kbminisplit.domain.model.Split
-import kotlin.math.roundToInt
 import com.kbminisplit.ui.info.InfoScreen
 import com.kbminisplit.ui.log.LogScreen
 import com.kbminisplit.ui.log.LogViewModel
 import com.kbminisplit.ui.nav.MainDestination
-import com.kbminisplit.ui.progression.ProgressionScreen
+import com.kbminisplit.ui.program.ProgramScreen
 import com.kbminisplit.ui.root.RootUiEvent
 import com.kbminisplit.ui.root.RootViewModel
 import com.kbminisplit.ui.tracker.TrackerEvent
@@ -63,15 +61,20 @@ import com.kbminisplit.ui.tracker.TrackerScreen
 import com.kbminisplit.ui.tracker.TrackerViewModel
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 
 /**
- * Post-onboarding entry point.
+ * Post-launch entry point: bottom navigation over Tracker, Log and Program.
  *
- * Phase 7: hosts a bottom navigation bar for Tracker, Log, and Progression tabs.
+ * [startOnProgram] opens on the Program tab, which is what a fresh install does —
+ * there is no onboarding wizard, so the editor is the introduction.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
+fun MainShell(
+    startOnProgram: Boolean = false,
+    rootViewModel: RootViewModel = hiltViewModel(),
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -79,8 +82,8 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
     val context = LocalContext.current
 
     var showResetDialog by remember { mutableStateOf(false) }
-    var showSplitDialog by remember { mutableStateOf(false) }
-    var showProgressionMenu by remember { mutableStateOf(false) }
+    var showDayDialog by remember { mutableStateOf(false) }
+    var showSettingsMenu by remember { mutableStateOf(false) }
     var showInfoPage by remember { mutableStateOf(false) }
     var tapCount by remember { mutableIntStateOf(0) }
     var lastTapTime by remember { mutableLongStateOf(0L) }
@@ -109,6 +112,14 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
 
     val trackerViewModel: TrackerViewModel = hiltViewModel()
     val logViewModel: LogViewModel = hiltViewModel()
+
+    // Seeing the Program tab is what retires the first-launch state, so the next
+    // launch opens straight on the Tracker.
+    LaunchedEffect(currentDestination?.route) {
+        if (currentDestination?.route == MainDestination.Program.route) {
+            rootViewModel.markProgramSeen()
+        }
+    }
 
     LaunchedEffect(trackerViewModel) {
         trackerViewModel.events.collect { event ->
@@ -148,38 +159,39 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
         )
     }
 
-    if (showSplitDialog) {
+    if (showDayDialog) {
+        val days by trackerViewModel.days.collectAsStateWithLifecycle()
         AlertDialog(
-            onDismissRequest = { showSplitDialog = false },
-            title = { Text("Choose Next Split") },
+            onDismissRequest = { showDayDialog = false },
+            title = { Text("Choose Next Day") },
             text = {
                 Column {
-                    Split.entries.forEach { split ->
+                    days.forEach { day ->
                         TextButton(
                             onClick = {
-                                trackerViewModel.forceSplit(split)
-                                showSplitDialog = false
+                                trackerViewModel.forceDay(day.key)
+                                showDayDialog = false
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Split ${split.name}")
+                            Text(day.name)
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showSplitDialog = false }) {
+                TextButton(onClick = { showDayDialog = false }) {
                     Text("Cancel")
                 }
             }
         )
     }
 
-    if (showProgressionMenu) {
+    if (showSettingsMenu) {
         val currentLevel by rootViewModel.hapticLevel.collectAsStateWithLifecycle(initialValue = 1)
         AlertDialog(
-            onDismissRequest = { showProgressionMenu = false },
-            title = { Text("Progression Settings") },
+            onDismissRequest = { showSettingsMenu = false },
+            title = { Text("Settings") },
             text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
@@ -207,7 +219,7 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
                         onClick = {
                             val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmm"))
                             exportLauncher.launch("kbminisplit_backup_$timestamp.json")
-                            showProgressionMenu = false
+                            showSettingsMenu = false
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -216,7 +228,7 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
                     TextButton(
                         onClick = {
                             importLauncher.launch("application/json")
-                            showProgressionMenu = false
+                            showSettingsMenu = false
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -225,7 +237,7 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showProgressionMenu = false }) {
+                TextButton(onClick = { showSettingsMenu = false }) {
                     Text("Done")
                 }
             }
@@ -260,12 +272,10 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
                                 }
                                 lastTapTime = now
                                 if (tapCount >= 5) {
-                                    if (currentDestination?.route == MainDestination.Log.route) {
-                                        showResetDialog = true
-                                    } else if (currentDestination?.route == MainDestination.Tracker.route) {
-                                        showSplitDialog = true
-                                    } else if (currentDestination?.route == MainDestination.Progression.route) {
-                                        showProgressionMenu = true
+                                    when (currentDestination?.route) {
+                                        MainDestination.Log.route -> showResetDialog = true
+                                        MainDestination.Tracker.route -> showDayDialog = true
+                                        MainDestination.Program.route -> showSettingsMenu = true
                                     }
                                     tapCount = 0
                                 }
@@ -313,7 +323,11 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
         } else {
             NavHost(
                 navController = navController,
-                startDestination = MainDestination.Tracker.route,
+                startDestination = if (startOnProgram) {
+                    MainDestination.Program.route
+                } else {
+                    MainDestination.Tracker.route
+                },
                 modifier = Modifier.padding(innerPadding)
             ) {
                 composable(MainDestination.Tracker.route) {
@@ -322,7 +336,7 @@ fun MainShell(rootViewModel: RootViewModel = hiltViewModel()) {
                 composable(MainDestination.Log.route) {
                     LogScreen(viewModel = logViewModel)
                 }
-                composable(MainDestination.Progression.route) { ProgressionScreen() }
+                composable(MainDestination.Program.route) { ProgramScreen() }
             }
         }
     }
